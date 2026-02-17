@@ -197,11 +197,6 @@
           break;
         case 'GO_TO_SCREEN':
           next = { ...state, stage: action.payload };
-          if (action.payload === STAGES.PROJECTS) {
-            localStorage.removeItem('travelPMS_lastProjectId');
-            next.project = null;
-            next.itinerary = null;
-          }
           break;
         default:
           return state;
