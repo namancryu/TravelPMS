@@ -1663,7 +1663,8 @@
         '크라비': 650000, '푸켓': 650000, '칸쿤': 1600000, '몰디브': 1500000,
         '제주도': 200000
       };
-      const oneWayFlight = Math.round((flightRoundtripMap[itinDestName] || 0) / 2);
+      const roundtripPrice = flightRoundtripMap[itinDestName];
+      const oneWayFlight = roundtripPrice ? Math.round(roundtripPrice / 2) : 0;
 
       // Day별 총 비용 계산 (항공비 포함)
       const getDayCost = (d) => {
@@ -2710,15 +2711,16 @@
       };
       const flightHours = flightHoursMap[matchedName] || null;
       let flightCost = 0;
+      let flightUnknown = false;
       if (!needsCar) {
         if (flightPriceMap[matchedName] !== undefined) {
           flightCost = Math.round(flightPriceMap[matchedName] * flightMultiplier * typeDiscount);
         } else if (isJeju) {
           flightCost = Math.round(150000 * flightMultiplier);
         } else {
-          // 가격표에 없는 도시는 baseCost 기반 추정 (최소 항공료 보장)
-          const estimatedFlight = Math.round(baseCost * 0.55 * flightMultiplier * typeDiscount);
-          flightCost = Math.max(estimatedFlight, 400000); // 해외는 최소 40만원
+          // 미등록 도시는 항공료 미제공 (부정확한 정보 방지)
+          flightCost = 0;
+          flightUnknown = true;
         }
       }
 
@@ -2876,7 +2878,7 @@
             {/* 항목별 상세 */}
             <div className="space-y-1">
               {[
-                { label: `✈️ 항공 (왕복${flightHours ? `, 편도 ${flightHours % 1 === 0 ? flightHours + '시간' : Math.floor(flightHours) + '시간 ' + Math.round((flightHours % 1) * 60) + '분'}` : ''})`, cost: costs.flight, show: !needsCar },
+                { label: flightUnknown ? '✈️ 항공 (스카이스캐너에서 검색하세요)' : `✈️ 항공 (왕복${flightHours ? `, 편도 ${flightHours % 1 === 0 ? flightHours + '시간' : Math.floor(flightHours) + '시간 ' + Math.round((flightHours % 1) * 60) + '분'}` : ''})`, cost: costs.flight, show: !needsCar, isUnknown: flightUnknown },
                 { label: '🚗 자동차 (유류비+톨비)', cost: costs.car, show: needsCar, isCarCost: true },
                 { label: '🏨 숙소', cost: costs.hotel, show: true },
                 { label: '🍽️ 식비', cost: costs.food, show: true },
