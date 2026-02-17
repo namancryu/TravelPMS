@@ -1,0 +1,3060 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>여행이 - AI 여행 플래너</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#7c3aed">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- React 18 CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Socket.io CDN -->
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { 50:'#f5f3ff',100:'#ede9fe',200:'#ddd6fe',300:'#c4b5fd',400:'#a78bfa',500:'#8b5cf6',600:'#7c3aed',700:'#6d28d9',800:'#5b21b6',900:'#4c1d95' }
+          }
+        }
+      }
+    }
+  </script>
+
+  <link rel="stylesheet" href="assets/styles/custom.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    const { useState, useEffect, useReducer, useRef, useCallback } = React;
+
+    // ─── API 설정 ────────────────────────────────────────
+    const API_BASE = (() => {
+      const hostname = window.location.hostname;
+      const port = 3000;
+
+      // 프로덕션 환경 (도메인이 있는 경우)
+      if (hostname !== 'localhost' && hostname !== '127.0.0.1' &&
+          !hostname.match(/^192\.168\./) && !hostname.match(/^10\./) &&
+          !hostname.match(/^172\.(1[6-9]|2\d|3[01])\./)) {
+        return ''; // 상대 경로 사용
+      }
+
+      // 개발 환경 (localhost 또는 로컬 IP)
+      return `http://${hostname}:${port}`;
+    })();
+
+    console.log('🔗 API Base URL:', API_BASE || '(상대 경로)');
+
+    async function api(endpoint, options = {}) {
+      try {
+        const res = await fetch(`${API_BASE}${endpoint}`, {
+          headers: { 'Content-Type': 'application/json' },
+          ...options
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        return await res.json();
+      } catch (err) {
+        console.error(`API ${endpoint}:`, err);
+        return null;
+      }
+    }
+
+    // ─── 상태 관리 ───────────────────────────────────────
+    const STAGES = { PROJECTS: 'PROJECTS', CONSULTING: 'CONSULTING', PLANNING: 'PLANNING', EXECUTION: 'EXECUTION' };
+
+    const initialState = {
+      stage: STAGES.CONSULTING,
+      aiMode: 'unknown',
+      quotaExceeded: false,
+      resetTime: null,
+      userSettings: { homeCity: '서울', homeCountry: '대한민국', defaultTravelers: 2, fuelEfficiency: 10, fuelPrice: 1700 }, // 전역 설정
+      consulting: { messages: [], sessionId: `session-${Date.now()}`, recommendations: [], state: 'GREETING', context: {} },
+      project: null,
+      itinerary: null
+    };
+
+    function loadState() {
+      try {
+        const saved = localStorage.getItem('travelPMS_state');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+
+          // 데이터 버전 체크 (오래된 데이터는 무시)
+          const DATA_VERSION = 3;  // 버전 업데이트 (userSettings 추가)
+          if (!parsed._version || parsed._version < DATA_VERSION) {
+            console.log('⚠️ 오래된 localStorage 데이터 감지, 클리어합니다.');
+            localStorage.removeItem('travelPMS_state');
+            return { ...initialState, stage: STAGES.PROJECTS, _version: DATA_VERSION };
+          }
+
+          // userSettings 기본값 설정
+          if (!parsed.userSettings) {
+            parsed.userSettings = { homeCity: '서울', homeCountry: '대한민국', defaultTravelers: 2, fuelEfficiency: 10, fuelPrice: 1700 };
+          } else {
+            // 기존 설정에 새 필드 추가
+            parsed.userSettings = {
+              ...parsed.userSettings,
+              homeCity: parsed.userSettings.homeCity || '서울',
+              defaultTravelers: parsed.userSettings.defaultTravelers || 2,
+              fuelEfficiency: parsed.userSettings.fuelEfficiency || 10,
+              fuelPrice: parsed.userSettings.fuelPrice || 1700
+            };
+          }
+
+          // 항상 프로젝트 목록 화면부터 시작
+          if (parsed.project) return { ...parsed, stage: STAGES.PROJECTS };
+        }
+      } catch (_) {}
+      // 프로젝트가 없으면 프로젝트 목록 화면으로
+      return { ...initialState, stage: STAGES.PROJECTS, _version: 3 };
+    }
+
+    function reducer(state, action) {
+      let next;
+      switch (action.type) {
+        case 'SET_AI_MODE':
+          next = {
+            ...state,
+            aiMode: action.payload.aiMode || action.payload,
+            quotaExceeded: action.payload.quotaExceeded || false,
+            resetTime: action.payload.resetTime || null
+          };
+          break;
+        case 'ADD_MESSAGE':
+          next = { ...state, consulting: { ...state.consulting, messages: [...state.consulting.messages, action.payload] } };
+          break;
+        case 'SET_CONSULTING_STATE':
+          next = { ...state, consulting: { ...state.consulting, state: action.payload.state, recommendations: action.payload.recommendations || state.consulting.recommendations, context: action.payload.context || state.consulting.context } };
+          break;
+        case 'SET_RECOMMENDATIONS':
+          next = { ...state, consulting: { ...state.consulting, recommendations: action.payload } };
+          break;
+        case 'SET_PROJECT':
+          next = { ...state, project: action.payload };
+          if (action.payload?.id) {
+            localStorage.setItem('travelPMS_lastProjectId', action.payload.id);
+          }
+          break;
+        case 'CLEAR_PROJECT':
+          next = { ...state, project: null, itinerary: null };
+          localStorage.removeItem('travelPMS_lastProjectId');
+          break;
+        case 'SET_ITINERARY':
+          next = { ...state, itinerary: action.payload };
+          break;
+        case 'SET_USER_SETTINGS':
+          next = { ...state, userSettings: { ...state.userSettings, ...action.payload } };
+          break;
+        case 'SET_PROJECT_WITH_ITINERARY':
+          console.log('🔄 SET_PROJECT_WITH_ITINERARY 실행:', action.payload);
+          next = {
+            ...state,
+            project: action.payload.project,
+            itinerary: action.payload.itinerary,
+            stage: STAGES.PLANNING
+          };
+          console.log('🔄 새로운 state:', next);
+          break;
+        case 'UPDATE_TASK':
+          if (!state.project) return state;
+          next = { ...state, project: { ...state.project, tasks: state.project.tasks.map(t => t.id === action.payload.id ? { ...t, ...action.payload } : t) } };
+          break;
+        case 'UPDATE_BUDGET':
+          if (!state.project) return state;
+          next = { ...state, project: { ...state.project, budget: { ...state.project.budget, ...action.payload } } };
+          break;
+        case 'TOGGLE_TASK':
+          if (!state.project) return state;
+          next = { ...state, project: { ...state.project, tasks: state.project.tasks.map(t => t.id === action.payload.taskId ? { ...t, status: action.payload.status } : t) } };
+          break;
+        case 'SYNC_TASK':
+          if (!state.project) return state;
+          next = { ...state, project: { ...state.project, tasks: state.project.tasks.map(t => t.id === action.payload.taskId ? { ...t, status: action.payload.status } : t) } };
+          break;
+        case 'UPDATE_BUDGET_SPENT':
+          if (!state.project) return state;
+          next = { ...state, project: { ...state.project, budget: { ...state.project.budget, categories: { ...state.project.budget.categories, [action.payload.category]: { ...state.project.budget.categories[action.payload.category], spent: action.payload.spent } } } } };
+          break;
+        case 'SYNC_BUDGET':
+          if (!state.project) return state;
+          next = { ...state, project: { ...state.project, budget: { ...state.project.budget, categories: { ...state.project.budget.categories, [action.payload.category]: { ...state.project.budget.categories[action.payload.category], spent: action.payload.spent } } } } };
+          break;
+        case 'RESET':
+          localStorage.removeItem('travelPMS_state');
+          next = { ...initialState, consulting: { ...initialState.consulting, sessionId: `session-${Date.now()}` } };
+          break;
+        case 'GO_TO_SCREEN':
+          next = { ...state, stage: action.payload };
+          if (action.payload === STAGES.PROJECTS) {
+            localStorage.removeItem('travelPMS_lastProjectId');
+            next.project = null;
+            next.itinerary = null;
+          }
+          break;
+        default:
+          return state;
+      }
+      if (next.project) {
+        localStorage.setItem('travelPMS_state', JSON.stringify(next));
+      }
+      return next;
+    }
+
+    // ─── 유틸리티 ────────────────────────────────────────
+    function formatCurrency(n) {
+      if (n == null || isNaN(n)) return '0원';
+      if (n >= 10000) return `${Math.round(n / 10000)}만원`;
+      return `${n.toLocaleString()}원`;
+    }
+    function formatUSD(n) {
+      if (!n) return '';
+      return `$${n.toLocaleString()}`;
+    }
+
+    function getDDay(dateStr) {
+      if (!dateStr) return '';
+      const diff = Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24));
+      return diff > 0 ? `D-${diff}` : diff === 0 ? 'D-Day' : `D+${Math.abs(diff)}`;
+    }
+
+    // ─── 앱 컴포넌트 ────────────────────────────────────
+    // Socket.io 연결 (싱글톤)
+    const socketRef = { current: null };
+    function getSocket() {
+      if (!socketRef.current) {
+        socketRef.current = io(API_BASE, { transports: ['websocket', 'polling'] });
+      }
+      return socketRef.current;
+    }
+
+    // ─── PIN 잠금 설정 ────────────────────────────────────
+    const APP_PIN = '3512';  // PIN 코드 설정
+    const PIN_ENABLED = true;  // PIN 잠금 활성화
+
+    // ─── PIN 게이트 (App 래퍼) ─────────────────────────────
+    function PinGate({ children }) {
+      const [isUnlocked, setIsUnlocked] = useState(() =>
+        !PIN_ENABLED || localStorage.getItem('travelPMS_unlocked') === 'true'
+      );
+
+      if (!isUnlocked) {
+        return <PinLockScreen onUnlock={() => setIsUnlocked(true)} />;
+      }
+      return children;
+    }
+
+    // ─── PIN 잠금 화면 컴포넌트 ─────────────────────────────
+    function PinLockScreen({ onUnlock }) {
+      const [pin, setPin] = useState('');
+      const [error, setError] = useState(false);
+      const [shake, setShake] = useState(false);
+
+      const handleKeyPress = (num) => {
+        if (pin.length < 4) {
+          const newPin = pin + num;
+          setPin(newPin);
+          setError(false);
+          if (newPin.length === 4) {
+            if (newPin === APP_PIN) {
+              localStorage.setItem('travelPMS_unlocked', 'true');
+              onUnlock();
+            } else {
+              setError(true);
+              setShake(true);
+              setTimeout(() => { setPin(''); setShake(false); }, 500);
+            }
+          }
+        }
+      };
+
+      const handleDelete = () => {
+        setPin(pin.slice(0, -1));
+        setError(false);
+      };
+
+      return (
+        <div className="fixed inset-0 bg-gradient-to-br from-primary-600 to-purple-700 flex items-center justify-center z-50">
+          <div className="text-center">
+            <div className="text-6xl mb-4">🔐</div>
+            <h1 className="text-white text-2xl font-bold mb-2">Travel PMS</h1>
+            <p className="text-purple-200 text-sm mb-8">PIN을 입력하세요</p>
+
+            {/* PIN 표시 */}
+            <div className={`flex justify-center gap-3 mb-8 ${shake ? 'animate-shake' : ''}`}>
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className={`w-4 h-4 rounded-full border-2 ${
+                  pin.length > i
+                    ? (error ? 'bg-red-400 border-red-400' : 'bg-white border-white')
+                    : 'border-white/50'
+                }`} />
+              ))}
+            </div>
+            {error && <p className="text-red-300 text-sm mb-4">잘못된 PIN입니다</p>}
+
+            {/* 숫자 키패드 */}
+            <div className="grid grid-cols-3 gap-3 max-w-[240px] mx-auto">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, null, 0, 'del'].map((num, i) => (
+                num === null ? <div key={i} /> :
+                num === 'del' ? (
+                  <button key={i} onClick={handleDelete} className="w-16 h-16 rounded-full bg-white/10 text-white text-xl flex items-center justify-center active:bg-white/20">
+                    ←
+                  </button>
+                ) : (
+                  <button key={i} onClick={() => handleKeyPress(num)} className="w-16 h-16 rounded-full bg-white/20 text-white text-2xl font-bold active:bg-white/30">
+                    {num}
+                  </button>
+                )
+              ))}
+            </div>
+          </div>
+          <style>{`
+            @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-10px); } 75% { transform: translateX(10px); } }
+            .animate-shake { animation: shake 0.3s ease-in-out; }
+          `}</style>
+        </div>
+      );
+    }
+
+    function App() {
+      const [state, dispatch] = useReducer(reducer, null, loadState);
+      const [collabUsers, setCollabUsers] = useState([]);
+      const [collabMessages, setCollabMessages] = useState([]);
+      const [nickname, setNickname] = useState(() => localStorage.getItem('travelPMS_nickname') || '');
+
+      useEffect(() => {
+        let isMounted = true;
+
+        api('/api/mode').then(data => {
+          if (isMounted && data) dispatch({ type: 'SET_AI_MODE', payload: data });
+        });
+
+        // 공유 링크로 접속한 경우
+        const params = new URLSearchParams(window.location.search);
+        const sharedId = params.get('shared');
+        if (sharedId) {
+          api(`/api/share/${sharedId}`).then(data => {
+            if (!isMounted) return;
+            if (data && data.project) {
+              dispatch({ type: 'SET_PROJECT', payload: data.project });
+              if (data.itinerary) dispatch({ type: 'SET_ITINERARY', payload: data.itinerary });
+            }
+          });
+        }
+
+        // URL 파라미터 또는 localStorage에서 마지막 프로젝트 복원
+        const projectId = params.get('project') || localStorage.getItem('travelPMS_lastProjectId');
+        if (projectId) {
+          api(`/api/project/${projectId}`).then(data => {
+            if (!isMounted) return;
+            if (data && data.project) {
+              dispatch({ type: 'SET_PROJECT', payload: data.project });
+              if (data.itinerary) dispatch({ type: 'SET_ITINERARY', payload: data.itinerary });
+            }
+          });
+        }
+
+        return () => { isMounted = false; };
+      }, []);
+
+      // Socket.io 실시간 동기화
+      useEffect(() => {
+        if (!state.project?.id || !nickname) return;
+        const socket = getSocket();
+        let isSubscribed = true;
+
+        socket.emit('project:join', { projectId: state.project.id, nickname });
+
+        const handleProjectUsers = (users) => {
+          if (isSubscribed) setCollabUsers(users);
+        };
+
+        const handleTaskUpdated = ({ taskId, status, updatedBy }) => {
+          if (isSubscribed) dispatch({ type: 'SYNC_TASK', payload: { taskId, status, updatedBy } });
+        };
+
+        const handleBudgetUpdated = ({ category, spent, updatedBy }) => {
+          if (isSubscribed) dispatch({ type: 'SYNC_BUDGET', payload: { category, spent, updatedBy } });
+        };
+
+        const handleItineraryUpdated = ({ itinerary, updatedBy }) => {
+          if (isSubscribed) dispatch({ type: 'SET_ITINERARY', payload: itinerary });
+        };
+
+        const handleProjectUpdated = ({ project, itinerary }) => {
+          if (!isSubscribed) return;
+          if (project) dispatch({ type: 'SET_PROJECT', payload: project });
+          if (itinerary) dispatch({ type: 'SET_ITINERARY', payload: itinerary });
+        };
+
+        const handleCollabMessage = (msg) => {
+          if (isSubscribed) setCollabMessages(prev => [...prev.slice(-50), msg]);
+        };
+
+        socket.on('project:users', handleProjectUsers);
+        socket.on('task:updated', handleTaskUpdated);
+        socket.on('budget:updated', handleBudgetUpdated);
+        socket.on('itinerary:updated', handleItineraryUpdated);
+        socket.on('project:updated', handleProjectUpdated);
+        socket.on('collab:message', handleCollabMessage);
+
+        return () => {
+          isSubscribed = false;
+          socket.off('project:users', handleProjectUsers);
+          socket.off('task:updated', handleTaskUpdated);
+          socket.off('budget:updated', handleBudgetUpdated);
+          socket.off('itinerary:updated', handleItineraryUpdated);
+          socket.off('project:updated', handleProjectUpdated);
+          socket.off('collab:message', handleCollabMessage);
+          socket.emit('project:leave', { projectId: state.project.id });
+        };
+      }, [state.project?.id, nickname, dispatch]);
+
+      // 자동 저장 훅 (2초 디바운싱)
+      function useAutoSave(state, delay = 2000) {
+        const saveTimeoutRef = useRef(null);
+        const lastSavedRef = useRef(null);
+
+        useEffect(() => {
+          if (!state.project?.id) return;
+
+          const currentState = JSON.stringify({
+            project: state.project,
+            itinerary: state.itinerary
+          });
+
+          if (lastSavedRef.current === currentState) return;
+
+          if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+          saveTimeoutRef.current = setTimeout(async () => {
+            try {
+              const result = await api('/api/project/save', {
+                method: 'POST',
+                body: JSON.stringify({
+                  projectId: state.project.id,
+                  project: state.project,
+                  itinerary: state.itinerary
+                })
+              });
+
+              if (result?.ok) {
+                lastSavedRef.current = currentState;
+                console.log('✅ 자동 저장:', new Date().toLocaleTimeString());
+              }
+            } catch (err) {
+              console.error('❌ 자동 저장 실패:', err);
+            }
+          }, delay);
+
+          return () => {
+            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+          };
+        }, [state.project, state.itinerary, delay]);
+      }
+
+      // 자동 저장 활성화
+      useAutoSave(state);
+
+      // 닉네임 입력 (프로젝트 진입 시)
+      const saveNickname = (name) => {
+        setNickname(name);
+        localStorage.setItem('travelPMS_nickname', name);
+      };
+
+      // 동기화 헬퍼: 변경사항을 소켓으로 전파
+      const syncDispatch = (action) => {
+        dispatch(action);
+        if (!state.project?.id) return;
+        const socket = getSocket();
+        if (action.type === 'TOGGLE_TASK') {
+          socket.emit('task:update', { projectId: state.project.id, taskId: action.payload.taskId, status: action.payload.status, updatedBy: nickname });
+        }
+        if (action.type === 'UPDATE_BUDGET_SPENT') {
+          socket.emit('budget:update', { projectId: state.project.id, category: action.payload.category, spent: action.payload.spent, updatedBy: nickname });
+        }
+      };
+
+      const sendCollabMessage = (msg) => {
+        if (!state.project?.id || !msg.trim()) return;
+        getSocket().emit('collab:message', { projectId: state.project.id, message: msg, nickname });
+      };
+
+      const screens = {
+        [STAGES.PROJECTS]: ProjectListScreen,
+        [STAGES.CONSULTING]: ConsultingScreen,
+        [STAGES.PLANNING]: DashboardScreen,
+        [STAGES.EXECUTION]: DashboardScreen
+      };
+      const Screen = screens[state.stage];
+
+      return (
+        <div className="max-w-lg mx-auto min-h-screen bg-white shadow-xl relative">
+          {/* 닉네임 입력 모달 (프로젝트 있고 닉네임 없을 때) */}
+          {state.project && !nickname && (
+            <NicknameModal onSave={saveNickname} />
+          )}
+          <Screen state={state} dispatch={syncDispatch} collabUsers={collabUsers} collabMessages={collabMessages} sendCollabMessage={sendCollabMessage} nickname={nickname} />
+        </div>
+      );
+    }
+
+    // ─── 닉네임 입력 모달 ───────────────────────────────────
+    function NicknameModal({ onSave }) {
+      const [name, setName] = useState('');
+      return (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-xl">
+            <h3 className="font-bold text-lg mb-2">함께 여행 계획해요!</h3>
+            <p className="text-sm text-gray-500 mb-4">동행자에게 보여질 이름을 입력하세요</p>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="예: 엄마, 아빠, 둘째..."
+              className="w-full border rounded-lg px-3 py-2 text-sm mb-3" autoFocus
+              onKeyDown={e => { if (e.key === 'Enter' && name.trim()) onSave(name.trim()); }} />
+            <button onClick={() => name.trim() && onSave(name.trim())} disabled={!name.trim()}
+              className="w-full bg-primary-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+              시작하기
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 화면 0: 프로젝트 목록
+    // ═══════════════════════════════════════════════════
+    function ProjectListScreen({ state, dispatch }) {
+      const [projects, setProjects] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [sortBy, setSortBy] = useState('updatedAt');
+      const [sortOrder, setSortOrder] = useState('desc');
+      const [filterConsulting, setFilterConsulting] = useState('all');
+      const [showSettings, setShowSettings] = useState(false);
+
+      useEffect(() => {
+        let isMounted = true;
+
+        const fetchProjects = async () => {
+          setLoading(true);
+          const data = await api('/api/projects');
+          if (!isMounted) return;
+
+          if (data?.projects) {
+            let filtered = data.projects;
+
+            // 필터링
+            if (filterConsulting === 'consulting') {
+              filtered = filtered.filter(p => p.consultingContext);
+            } else if (filterConsulting === 'direct') {
+              filtered = filtered.filter(p => !p.consultingContext);
+            }
+
+            // 정렬
+            filtered.sort((a, b) => {
+              if (sortBy === 'title') {
+                const aVal = a.destination?.name || a.title || '';
+                const bVal = b.destination?.name || b.title || '';
+                return sortOrder === 'asc'
+                  ? aVal.localeCompare(bVal, 'ko')
+                  : bVal.localeCompare(aVal, 'ko');
+              }
+              const aVal = new Date(a[sortBy]);
+              const bVal = new Date(b[sortBy]);
+              return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
+            });
+
+            setProjects(filtered);
+          }
+          setLoading(false);
+        };
+
+        fetchProjects();
+        return () => { isMounted = false; };
+      }, [sortBy, sortOrder, filterConsulting]);
+
+      const selectProject = async (project) => {
+        console.log('🔍 selectProject 호출:', project);
+
+        // 서버에서 최신 프로젝트 데이터 다시 불러오기
+        const freshData = await api(`/api/project/${project.id}`);
+        if (freshData && freshData.project) {
+          console.log('✅ 서버에서 최신 데이터 로드:', freshData.project);
+          dispatch({
+            type: 'SET_PROJECT_WITH_ITINERARY',
+            payload: {
+              project: freshData.project,
+              itinerary: freshData.itinerary || null
+            }
+          });
+        } else {
+          // 서버 실패 시 기존 데이터 사용
+          console.log('⚠️ 서버 로드 실패, 기존 데이터 사용');
+          dispatch({
+            type: 'SET_PROJECT_WITH_ITINERARY',
+            payload: {
+              project,
+              itinerary: project.itinerary || null
+            }
+          });
+        }
+      };
+
+      const createNewProject = () => {
+        dispatch({ type: 'RESET' });
+        dispatch({ type: 'GO_TO_SCREEN', payload: STAGES.CONSULTING });
+      };
+
+      return (
+        <div className="flex flex-col h-screen bg-gray-50">
+          {/* 헤더 */}
+          <div className="bg-gradient-to-r from-primary-600 to-purple-700 text-white px-4 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="font-bold text-xl">📂 내 여행 프로젝트</h1>
+                <p className="text-sm text-purple-100 mt-1">{projects.length}개의 여행 계획</p>
+              </div>
+              <button
+                onClick={() => setShowSettings(true)}
+                className="w-10 h-10 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                title="설정"
+              >
+                ⚙️
+              </button>
+            </div>
+          </div>
+
+          {/* 설정 모달 */}
+          <SettingsModal
+            isOpen={showSettings}
+            onClose={() => setShowSettings(false)}
+            state={state}
+            dispatch={dispatch}
+          />
+
+          {/* 정렬/필터 바 */}
+          <div className="bg-white border-b px-4 py-3 space-y-2">
+            <div className="flex gap-2 overflow-x-auto scrollbar-none">
+              <FilterButton active={sortBy === 'updatedAt'} onClick={() => setSortBy('updatedAt')}>최근 수정순</FilterButton>
+              <FilterButton active={sortBy === 'createdAt'} onClick={() => setSortBy('createdAt')}>생성일순</FilterButton>
+              <FilterButton active={sortBy === 'title'} onClick={() => setSortBy('title')}>이름순</FilterButton>
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto scrollbar-none">
+              <FilterChip active={filterConsulting === 'all'} onClick={() => setFilterConsulting('all')}>전체</FilterChip>
+              <FilterChip active={filterConsulting === 'consulting'} onClick={() => setFilterConsulting('consulting')}>🤖 AI 컨설팅</FilterChip>
+              <FilterChip active={filterConsulting === 'direct'} onClick={() => setFilterConsulting('direct')}>직접 생성</FilterChip>
+            </div>
+          </div>
+
+          {/* 프로젝트 목록 */}
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+            {loading ? (
+              <div className="text-center py-12 text-gray-400">
+                <div className="text-3xl mb-2">⏳</div>
+                <p>프로젝트 불러오는 중...</p>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <div className="text-4xl mb-3">🧳</div>
+                <p className="text-sm mb-4">아직 여행 계획이 없어요</p>
+                <button onClick={createNewProject} className="bg-primary-600 text-white px-6 py-2 rounded-lg text-sm font-medium">
+                  첫 여행 계획 만들기
+                </button>
+              </div>
+            ) : (
+              projects.map(project => (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  onClick={() => selectProject(project)}
+                  onDelete={async (projectId) => {
+                    const data = await api('/api/projects');
+                    if (data?.projects) {
+                      setProjects(data.projects);
+                    }
+                  }}
+                />
+              ))
+            )}
+          </div>
+
+          {/* 새 프로젝트 버튼 */}
+          {projects.length > 0 && (
+            <div className="p-4 bg-white border-t">
+              <button onClick={createNewProject} className="w-full bg-primary-600 text-white py-3 rounded-lg font-medium">
+                + 새 여행 계획 만들기
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function ProjectCard({ project, onClick, onDelete }) {
+      const progress = project.tasks?.length > 0
+        ? Math.round((project.tasks.filter(t => t.status === 'completed').length / project.tasks.length) * 100)
+        : 0;
+
+      const dDay = project.dates?.start ? getDDay(project.dates.start) : null;
+
+      const totalSpent = project.budget?.categories
+        ? Object.values(project.budget.categories).reduce((s, c) => s + (c.spent || 0), 0)
+        : 0;
+      const budgetUsage = project.budget?.total > 0
+        ? Math.round((totalSpent / project.budget.total) * 100)
+        : 0;
+
+      const handleDelete = async (e) => {
+        e.stopPropagation(); // 카드 클릭 이벤트 방지
+
+        const projectName = project.destination?.name || project.title;
+        if (!confirm(`"${projectName}" 프로젝트를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.`)) {
+          return;
+        }
+
+        try {
+          const result = await api(`/api/project/${project.id}`, {
+            method: 'DELETE'
+          });
+
+          if (result?.success) {
+            console.log('✅ 프로젝트 삭제 성공:', project.id);
+            if (onDelete) onDelete(project.id);
+          }
+        } catch (err) {
+          console.error('❌ 프로젝트 삭제 실패:', err);
+          alert('프로젝트 삭제에 실패했습니다.');
+        }
+      };
+
+      return (
+        <div onClick={onClick} className="bg-white border rounded-xl p-4 cursor-pointer hover:shadow-md transition-shadow active:scale-98 relative">
+          {/* 삭제 버튼 */}
+          <button
+            onClick={handleDelete}
+            className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 transition-colors"
+            title="프로젝트 삭제"
+          >
+            🗑️
+          </button>
+
+          <div className="flex items-start justify-between mb-2 pr-8">
+            <div className="flex-1">
+              <h3 className="font-bold text-lg flex items-center gap-2 flex-wrap">
+                {project.destination?.flag} {project.destination?.name || project.title}
+                {project.consultingContext && (
+                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">🤖 AI</span>
+                )}
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                {new Date(project.updatedAt).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })} 수정
+              </p>
+            </div>
+            {dDay && (
+              <div className="text-sm font-bold text-primary-600 bg-primary-50 px-3 py-1 rounded-lg whitespace-nowrap ml-2">
+                {dDay}
+              </div>
+            )}
+          </div>
+
+          {/* 진행률 */}
+          {project.tasks && project.tasks.length > 0 && (
+            <div className="mb-2">
+              <div className="flex justify-between text-xs text-gray-600 mb-1">
+                <span>진행률</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full bg-primary-500 transition-all" style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+          )}
+
+          {/* 예산 */}
+          {project.budget && (
+            <div className="flex justify-between text-xs text-gray-600">
+              <span>예산</span>
+              <span>
+                {formatCurrency(totalSpent)} / {formatCurrency(project.budget.total)}
+                <span className={budgetUsage > 90 ? 'text-red-500 ml-1' : 'text-gray-400 ml-1'}>
+                  ({budgetUsage}%)
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── 설정 모달 컴포넌트 ───────────────────────────────
+    function SettingsModal({ isOpen, onClose, state, dispatch }) {
+      const [homeCity, setHomeCity] = useState(state.userSettings?.homeCity || '');
+      const [homeCountry, setHomeCountry] = useState(state.userSettings?.homeCountry || '대한민국');
+
+      const handleSave = () => {
+        dispatch({
+          type: 'SET_USER_SETTINGS',
+          payload: { homeCity, homeCountry }
+        });
+        onClose();
+      };
+
+      if (!isOpen) return null;
+
+      return (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">⚙️ 설정</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+            </div>
+
+            <div className="space-y-4">
+              {/* 거주 국가 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">거주 국가</label>
+                <input
+                  type="text"
+                  value={homeCountry}
+                  onChange={(e) => setHomeCountry(e.target.value)}
+                  placeholder="예: 대한민국"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* 거주 도시 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">거주 도시</label>
+                <input
+                  type="text"
+                  value={homeCity}
+                  onChange={(e) => setHomeCity(e.target.value)}
+                  placeholder="예: 서울"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  설정하면 여행지 추천 시 제외되고, 국내/해외 여행을 자동으로 구분합니다
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSave}
+                className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+              >
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function FilterButton({ active, onClick, children }) {
+      return (
+        <button onClick={onClick} className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${active ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+          {children}
+        </button>
+      );
+    }
+
+    function FilterChip({ active, onClick, children }) {
+      return (
+        <button onClick={onClick} className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap border ${active ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-gray-300 bg-white text-gray-600'}`}>
+          {children}
+        </button>
+      );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 화면 1: 대화형 컨설팅
+    // ═══════════════════════════════════════════════════
+    function ConsultingScreen({ state, dispatch, collabUsers, collabMessages, sendCollabMessage, nickname }) {
+      const [input, setInput] = useState('');
+      const [loading, setLoading] = useState(false);
+      const messagesEndRef = useRef(null);
+      const inputRef = useRef(null);
+      const isInitializedRef = useRef(false);
+
+      useEffect(() => {
+        if (isInitializedRef.current) return; // 중복 실행 방지
+
+        if (state.consulting.messages.length === 0) {
+          isInitializedRef.current = true;
+          dispatch({
+            type: 'ADD_MESSAGE',
+            payload: {
+              role: 'assistant',
+              content: '안녕하세요! 저는 **여행이**, AI 여행 컨설턴트예요 ✈️\n\n어떤 여행을 꿈꾸고 계세요?\n바다, 도시 탐험, 맛집 투어, 가족 여행... 자유롭게 이야기해 주세요! 😊',
+              timestamp: new Date().toISOString(),
+              provider: 'system'
+            }
+          });
+        }
+      }, [state.consulting.messages.length, dispatch]);
+
+      useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, [state.consulting.messages]);
+
+      const sendMessage = async () => {
+        const msg = input.trim();
+        if (!msg || loading) return;
+        setInput('');
+        setLoading(true);
+
+        dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, timestamp: new Date().toISOString() } });
+
+        const result = await api('/api/chat', {
+          method: 'POST',
+          body: JSON.stringify({
+            message: msg,
+            sessionId: state.consulting.sessionId,
+            userSettings: state.userSettings  // 거주 도시 정보 전달
+          })
+        });
+
+        if (result) {
+          dispatch({ type: 'ADD_MESSAGE', payload: { role: 'assistant', content: result.response, timestamp: new Date().toISOString(), provider: result.provider } });
+          dispatch({ type: 'SET_CONSULTING_STATE', payload: { state: result.state, recommendations: result.recommendations, context: result.context } });
+          if (result.recommendations && result.recommendations.length > 0) {
+            dispatch({ type: 'SET_RECOMMENDATIONS', payload: result.recommendations });
+          }
+        } else {
+          dispatch({ type: 'ADD_MESSAGE', payload: { role: 'assistant', content: '죄송해요, 잠시 문제가 생겼어요. 다시 말씀해 주세요! 🙏', timestamp: new Date().toISOString(), provider: 'error' } });
+        }
+        setLoading(false);
+        inputRef.current?.focus();
+      };
+
+      const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+
+      const selectDestination = async (rec) => {
+        setLoading(true);
+        const travelerCount = state.consulting.context?.travelerCount || 2;
+        const totalBudget = rec.estimatedCost * travelerCount;
+        const result = await api('/api/project/create', {
+          method: 'POST',
+          body: JSON.stringify({
+            destinationId: rec.id,
+            sessionId: state.consulting.sessionId,
+            budget: totalBudget,
+            travelers: travelerCount,
+            destinationData: rec  // AI가 생성한 목적지 데이터 전달
+          })
+        });
+        if (result) {
+          dispatch({ type: 'SET_PROJECT', payload: result });
+          // 일정 자동 생성
+          const itinerary = await api('/api/itinerary/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+              destinationId: rec.id,
+              duration: result.destination?.sampleItinerary?.days || 4,
+              travelers: result.travelers,
+              budget: result.budget?.total,
+              startDate: result.dates?.start
+            })
+          });
+          if (itinerary) dispatch({ type: 'SET_ITINERARY', payload: itinerary });
+        }
+        setLoading(false);
+      };
+
+      return (
+        <div className="flex flex-col h-screen">
+          {/* 헤더 */}
+          <div className="bg-gradient-to-r from-primary-600 to-purple-700 text-white px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🧳</span>
+              <div>
+                <h1 className="font-bold text-lg leading-tight">여행이</h1>
+                <p className="text-xs text-purple-200">AI 여행 컨설턴트</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {state.aiMode !== 'unknown' && (
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className={`text-sm font-semibold px-3 py-1 rounded-full border ${state.aiMode === 'gemini' ? 'bg-green-500/40 text-green-50 border-green-300/50' : 'bg-yellow-500/40 text-yellow-50 border-yellow-300/50'}`}>
+                    {state.aiMode === 'gemini' ? '🤖 Gemini AI' : state.quotaExceeded ? '⚠️ Mock Mode' : '📋 Demo'}
+                  </span>
+                  {state.quotaExceeded && state.resetTime && (
+                    <span className="text-[10px] text-yellow-200 whitespace-nowrap">
+                      {state.resetTime} 리셋
+                    </span>
+                  )}
+                </div>
+              )}
+              <button onClick={() => dispatch({ type: 'GO_TO_SCREEN', payload: STAGES.PROJECTS })}
+                className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">
+                📂
+              </button>
+              {state.project && (
+                <button onClick={() => dispatch({ type: 'GO_TO_SCREEN', payload: STAGES.PLANNING })}
+                  className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">
+                  📊
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 메시지 영역 */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {state.consulting.messages.map((msg, i) => (
+              <MessageBubble key={i} message={msg} />
+            ))}
+
+            {/* 추천 카드 */}
+            {state.consulting.recommendations && state.consulting.recommendations.length > 0 && !state.project && (
+              <div className="space-y-2 slide-in">
+                <p className="text-xs text-gray-500 text-center font-medium">👇 마음에 드는 여행지를 선택하세요</p>
+                {state.consulting.recommendations.map((rec, i) => (
+                  <RecommendationCard key={rec.id} rec={rec} index={i} onSelect={selectDestination} disabled={loading} travelerCount={state.consulting.context?.travelerCount || 2} travelType={state.consulting.context?.travelType} />
+                ))}
+              </div>
+            )}
+
+            {loading && (
+              <div className="flex items-start gap-2">
+                <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-sm">🤖</div>
+                <div className="bg-gray-100 rounded-2xl px-4 py-3">
+                  <div className="flex gap-1"><span className="dot-pulse"></span><span className="dot-pulse" style={{animationDelay:'0.2s'}}></span><span className="dot-pulse" style={{animationDelay:'0.4s'}}></span></div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* 입력 영역 */}
+          <div className="border-t border-gray-200 px-4 py-3 bg-white">
+            <div className="flex gap-2">
+              <input ref={inputRef} type="text" value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown} disabled={loading}
+                placeholder="여행 계획을 자유롭게 이야기해주세요..."
+                className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-50"
+              />
+              <button onClick={sendMessage} disabled={loading || !input.trim()}
+                className="bg-primary-600 text-white px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95">
+                전송
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 메시지 버블 ─────────────────────────────────────
+    function MessageBubble({ message }) {
+      const isUser = message.role === 'user';
+
+      // Provider 정보를 라벨로 변환
+      const getProviderLabel = (provider) => {
+        if (!provider || provider === 'system') return null;
+        const labels = {
+          'gemini': { text: '🤖 Gemini AI', color: 'bg-green-500/20 text-green-700' },
+          'groq': { text: '⚡ Groq AI', color: 'bg-blue-500/20 text-blue-700' },
+          'together': { text: '🌐 Together AI', color: 'bg-purple-500/20 text-purple-700' },
+          'mock': { text: '📋 Demo Mode', color: 'bg-yellow-500/20 text-yellow-700' },
+          'error': { text: '⚠️ Error', color: 'bg-red-500/20 text-red-700' }
+        };
+        return labels[provider] || { text: `🔧 ${provider}`, color: 'bg-gray-500/20 text-gray-700' };
+      };
+
+      const providerInfo = !isUser && message.provider ? getProviderLabel(message.provider) : null;
+
+      return (
+        <div className={`flex items-start gap-2 slide-in ${isUser ? 'flex-row-reverse' : ''}`}>
+          {!isUser && <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-sm flex-shrink-0">🤖</div>}
+          <div className="flex flex-col gap-1 max-w-[80%]">
+            <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${isUser ? 'bg-primary-600 text-white rounded-tr-md' : 'bg-gray-100 text-gray-800 rounded-tl-md'}`}>
+              {message.content.split(/(\*\*.*?\*\*)/).map((part, i) =>
+                part.startsWith('**') && part.endsWith('**')
+                  ? <strong key={i}>{part.slice(2, -2)}</strong>
+                  : part
+              )}
+            </div>
+            {providerInfo && (
+              <span className={`text-[10px] px-2 py-0.5 rounded self-start ${providerInfo.color}`}>
+                {providerInfo.text}
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 추천 카드 ───────────────────────────────────────
+    function RecommendationCard({ rec, index, onSelect, disabled, travelerCount, travelType }) {
+      const medals = ['🥇', '🥈', '🥉'];
+      const count = travelerCount || 2;
+      const isPackage = travelType === 'package';
+
+      // 환율 자동 적용: estimatedCost가 너무 작으면 외화 금액일 가능성 높음
+      const exchangeRates = { EUR: 1450, USD: 1350, GBP: 1700, AUD: 900, CNY: 190 };
+      let rawCost = isPackage ? (rec.packageCost || Math.round(rec.estimatedCost * 0.8)) : rec.estimatedCost;
+
+      // 10만원 미만이고 currency가 외화면 환율 적용
+      if (rawCost < 100000 && rec.currency && exchangeRates[rec.currency]) {
+        console.warn(`⚠️ ${rec.name}: estimatedCost ${rawCost.toLocaleString()}가 너무 작음. ${rec.currency}로 간주하고 환율 적용.`);
+        rawCost = Math.round(rawCost * exchangeRates[rec.currency]);
+      }
+
+      const perCost = rawCost;
+      const perCostUSD = isPackage ? (rec.packageCostUSD || null) : (rec.estimatedCostUSD || null);
+      const totalCost = perCost * count;
+      const typeLabel = isPackage ? '패키지' : '자유여행';
+      return (
+        <button onClick={() => onSelect({...rec, estimatedCost: perCost})} disabled={disabled}
+          className="w-full text-left bg-white border-2 border-gray-200 rounded-xl p-4 hover:border-primary-400 hover:shadow-md transition-all active:scale-[0.98] disabled:opacity-50">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{medals[index] || '🎯'}</span>
+              <span className="text-lg">{rec.flag}</span>
+              <span className="font-bold text-gray-900">{rec.name}</span>
+              <span className="text-xs text-gray-500">{rec.country}</span>
+            </div>
+            <span className="bg-primary-100 text-primary-700 text-xs font-bold px-2 py-0.5 rounded-full">
+              {rec.matchScore}% 매칭
+            </span>
+          </div>
+          <p className="text-xs text-gray-600 mb-2 line-clamp-2">{rec.reason}</p>
+          <div className="flex gap-1 flex-wrap mb-2">
+            {(rec.highlights || []).slice(0, 3).map((h, i) => (
+              <span key={i} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{h}</span>
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t pt-2">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isPackage ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+              {typeLabel}
+            </span>
+            <div className="text-right">
+              <span className="text-xs font-bold text-primary-600">
+                1인 {formatCurrency(perCost)}{perCostUSD ? ` (${formatUSD(perCostUSD)})` : ''}
+              </span>
+              <span className="block text-[10px] text-gray-400">
+                {count}인 총 {formatCurrency(totalCost)}
+              </span>
+            </div>
+          </div>
+        </button>
+      );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 화면 2 & 3: 통합 대시보드 + 일정표
+    // ═══════════════════════════════════════════════════
+    function DashboardScreen({ state, dispatch, collabUsers, collabMessages, sendCollabMessage, nickname }) {
+      const [activeTab, setActiveTab] = useState('overview');
+
+      console.log('📊 DashboardScreen 렌더링:', {
+        hasProject: !!state.project,
+        hasItinerary: !!state.itinerary,
+        stage: state.stage,
+        projectId: state.project?.id
+      });
+
+      if (!state.project) {
+        console.log('⚠️ 프로젝트 없음 - 로딩 화면 표시');
+        return (
+          <div className="flex items-center justify-center h-screen bg-gradient-to-br from-primary-50 to-white">
+            <div className="text-center">
+              <div className="inline-block animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-primary-600 mb-6"></div>
+              <p className="text-xl text-gray-700 font-medium">프로젝트를 불러오는 중...</p>
+              <p className="text-sm text-gray-500 mt-2">잠시만 기다려주세요</p>
+            </div>
+          </div>
+        );
+      }
+
+      console.log('✅ 프로젝트 있음 - 대시보드 렌더링');
+      const { project, itinerary } = state;
+
+      // 데이터 안전성 검사 및 기본값 설정
+      const tasks = project.tasks || [];
+      const budget = project.budget || { total: 0, spent: 0, categories: {} };
+
+      const completedTasks = tasks.filter(t => t.status === 'completed').length;
+      const progress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
+      const totalSpent = Object.values(budget.categories).reduce((s, c) => s + (c.spent || 0), 0);
+
+      // budget과 tasks 변수를 project 객체에 추가
+      const safeProject = {
+        ...project,
+        tasks,
+        budget
+      };
+
+      return (
+        <div className="flex flex-col h-screen">
+          {/* 헤더 */}
+          <div className="bg-gradient-to-r from-primary-600 to-purple-700 text-white px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">{project.destination?.flag || '🌍'}</span>
+                <div>
+                  <h1 className="font-bold text-base leading-tight">{project.title}</h1>
+                  <p className="text-xs text-purple-200">
+                    {project.destination?.name || '여행지'} {project.dates ? getDDay(project.dates.start) : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                {collabUsers && collabUsers.length > 0 && (
+                  <span className="text-xs bg-green-500/30 text-green-100 px-2 py-1 rounded-lg">
+                    👥 {collabUsers.length}명 접속
+                  </span>
+                )}
+                <button onClick={() => dispatch({ type: 'GO_TO_SCREEN', payload: STAGES.PROJECTS })}
+                  className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">📂</button>
+                <button onClick={() => dispatch({ type: 'GO_TO_SCREEN', payload: STAGES.CONSULTING })}
+                  className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">💬</button>
+                <button onClick={() => { if(confirm('새 여행을 계획할까요?')) dispatch({ type: 'RESET' }); }}
+                  className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">🔄</button>
+              </div>
+            </div>
+            {/* 진행률 바 */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 bg-white/20 rounded-full h-2">
+                <div className="bg-white rounded-full h-2 transition-all duration-500" style={{width: `${progress}%`}}></div>
+              </div>
+              <span className="text-xs font-bold">{progress}%</span>
+            </div>
+          </div>
+
+          {/* 탭 */}
+          <div className="flex border-b border-gray-200 bg-white overflow-x-auto scrollbar-none">
+            {[
+              { id: 'overview', label: '📊 조견표' },
+              { id: 'itinerary', label: '📅 일정표' },
+              { id: 'simulator', label: '🧮 시뮬' },
+              { id: 'map', label: '🗺️ 지도' },
+              { id: 'tasks', label: '✅ 할일' },
+              { id: 'budget', label: '💰 예산' },
+              { id: 'emergency', label: '🆘 비상' },
+              { id: 'share', label: '👨‍👩‍👧‍👦 공유' }
+            ].map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`flex-shrink-0 px-3 py-2.5 text-xs font-medium transition-all ${activeTab === tab.id ? 'text-primary-600 border-b-2 border-primary-600' : 'text-gray-500'}`}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 탭 내용 */}
+          <div className="flex-1 overflow-y-auto">
+            {activeTab === 'overview' && <OverviewTab project={safeProject} itinerary={itinerary} totalSpent={totalSpent} progress={progress} dispatch={dispatch} />}
+            {activeTab === 'itinerary' && <ItineraryTab itinerary={itinerary} state={state} dispatch={dispatch} />}
+            {activeTab === 'simulator' && <SimulatorTab project={safeProject} state={state} dispatch={dispatch} />}
+            {activeTab === 'map' && <MapTab itinerary={itinerary} project={safeProject} />}
+            {activeTab === 'tasks' && <TasksTab project={safeProject} dispatch={dispatch} />}
+            {activeTab === 'budget' && <BudgetTab project={safeProject} totalSpent={totalSpent} dispatch={dispatch} />}
+            {activeTab === 'emergency' && <EmergencyTab project={safeProject} />}
+            {activeTab === 'share' && <ShareTab project={safeProject} itinerary={itinerary} state={state} />}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 조견표 탭 ───────────────────────────────────────
+    // 출발지 목록
+    const DEPARTURE_CITIES = [
+      { id: 'ICN', name: '인천 (인천공항)', airport: 'ICN' },
+      { id: 'GMP', name: '서울 (김포공항)', airport: 'GMP' },
+      { id: 'PUS', name: '부산 (김해공항)', airport: 'PUS' },
+      { id: 'CJU', name: '제주 (제주공항)', airport: 'CJU' },
+      { id: 'TAE', name: '대구 (대구공항)', airport: 'TAE' },
+      { id: 'KWJ', name: '광주 (광주공항)', airport: 'KWJ' },
+      { id: 'CJJ', name: '청주 (청주공항)', airport: 'CJJ' }
+    ];
+
+    function OverviewTab({ project, itinerary, totalSpent, progress, dispatch }) {
+      const tasks = project.tasks || [];
+      const completedTasks = tasks.filter(t => t.status === 'completed').length;
+
+      // 여행 일수 계산
+      const calcNights = (start, end) => {
+        if (!start || !end) return 0;
+        const s = new Date(start);
+        const e = new Date(end);
+        return Math.ceil((e - s) / (1000 * 60 * 60 * 24));
+      };
+
+      const nights = calcNights(project.dates?.start, project.dates?.end);
+      const days = nights + 1;
+
+      // 날짜/출발지 업데이트 핸들러
+      const updateDates = (field, value) => {
+        const updated = {
+          ...project,
+          dates: { ...project.dates, [field]: value }
+        };
+        dispatch({ type: 'SET_PROJECT', payload: updated });
+      };
+
+      const updateDeparture = (departure) => {
+        const updated = { ...project, departure };
+        dispatch({ type: 'SET_PROJECT', payload: updated });
+      };
+
+      const updateTravelers = (count) => {
+        const num = Math.max(1, Math.min(99, parseInt(count) || 1));
+        const updated = { ...project, travelers: num };
+        dispatch({ type: 'SET_PROJECT', payload: updated });
+      };
+
+      return (
+        <div className="p-4 space-y-4">
+          {/* 🔧 여행 설정 카드 */}
+          <div className="bg-white border-2 border-orange-200 rounded-xl p-4">
+            <h3 className="font-bold text-sm text-gray-900 mb-3 flex items-center gap-2">
+              <span>⚙️ 여행 설정</span>
+              {nights > 0 && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{nights}박{days}일</span>}
+            </h3>
+            <div className="space-y-3">
+              {/* 출발지 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 w-14">출발지</span>
+                <select
+                  value={project.departure || 'ICN'}
+                  onChange={e => updateDeparture(e.target.value)}
+                  className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+                >
+                  {DEPARTURE_CITIES.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              {/* 시작일 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 w-14">시작일</span>
+                <input
+                  type="date"
+                  value={project.dates?.start || ''}
+                  onChange={e => updateDates('start', e.target.value)}
+                  className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5"
+                />
+              </div>
+              {/* 종료일 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 w-14">종료일</span>
+                <input
+                  type="date"
+                  value={project.dates?.end || ''}
+                  onChange={e => updateDates('end', e.target.value)}
+                  className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5"
+                />
+              </div>
+              {/* 인원수 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 w-14">인원수</span>
+                <div className="flex-1 flex items-center gap-2">
+                  <button
+                    onClick={() => updateTravelers((project.travelers || 1) - 1)}
+                    className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 text-lg flex items-center justify-center hover:bg-gray-50 active:bg-gray-100"
+                  >−</button>
+                  <input
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={project.travelers || 1}
+                    onChange={e => updateTravelers(e.target.value)}
+                    className="w-14 text-center text-sm border border-gray-200 rounded-lg px-2 py-1.5"
+                  />
+                  <button
+                    onClick={() => updateTravelers((project.travelers || 1) + 1)}
+                    className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 text-lg flex items-center justify-center hover:bg-gray-50 active:bg-gray-100"
+                  >+</button>
+                  <span className="text-xs text-gray-400">명</span>
+                </div>
+              </div>
+              {nights > 0 && (() => {
+                const fhMap = { '도쿄': 2.5, '오사카': 2, '후쿠오카': 1.5, '삿포로': 3.5, '오키나와': 2.5, '방콕': 5.5, '다낭': 4.5, '호치민': 5.5, '나트랑': 5, '싱가포르': 6.5, '발리': 7, '세부': 4.5, '타이베이': 2.5, '홍콩': 3.5, '괌': 4.5, '사이판': 4.5, '하와이': 9, '파리': 12, '런던': 12, '로마': 11.5, '바르셀로나': 12, '이스탄불': 11, '뉴욕': 14, 'LA': 12, '시드니': 10.5, '제주도': 1 };
+                const fh = fhMap[project.destination?.name];
+                const fhText = fh ? (fh % 1 === 0 ? `${fh}시간` : `${Math.floor(fh)}시간 ${Math.round((fh % 1) * 60)}분`) : null;
+                return (
+                  <div className="text-xs text-center text-orange-600 font-medium pt-1">
+                    <div>✈️ {DEPARTURE_CITIES.find(c => c.id === (project.departure || 'ICN'))?.name} → {project.destination?.name} ({nights}박{days}일)</div>
+                    {fhText && <div className="text-[10px] text-gray-400 mt-0.5">편도 비행시간 약 {fhText}</div>}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* 핵심 요약 카드 */}
+          <div className="bg-gradient-to-br from-primary-500 to-purple-600 text-white rounded-2xl p-4">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="text-2xl font-bold">{project.dates ? getDDay(project.dates.start) : 'D-?'}</p>
+                <p className="text-xs text-purple-200">출발까지</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{progress}%</p>
+                <p className="text-xs text-purple-200">준비 완료</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{formatCurrency(totalSpent)}</p>
+                <p className="text-xs text-purple-200">사용 금액</p>
+              </div>
+            </div>
+          </div>
+
+          {/* 타임라인 */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h3 className="font-bold text-sm text-gray-900 mb-3">📋 준비 타임라인</h3>
+            <div className="space-y-3">
+              {project.milestones.map((m, i) => (
+                <div key={m.id} className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${m.status === 'completed' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                  <div className="flex-1 flex items-center justify-between">
+                    <span className={`text-sm ${m.status === 'completed' ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{m.label}</span>
+                    <span className="text-xs text-gray-400">{m.id.toUpperCase()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 일정 요약 */}
+          {itinerary && (
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h3 className="font-bold text-sm text-gray-900 mb-3">📅 일정 요약</h3>
+              <div className="space-y-2">
+                {itinerary.days.map(day => (
+                  <div key={day.dayNumber} className="flex items-center gap-2 text-sm">
+                    <span className="bg-primary-100 text-primary-700 text-xs font-bold px-2 py-0.5 rounded w-12 text-center">Day{day.dayNumber}</span>
+                    <span className="text-gray-800 flex-1 truncate">{day.title}</span>
+                    <span className="text-xs text-gray-400">{formatCurrency(day.totalCost)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 예약 현황 */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h3 className="font-bold text-sm text-gray-900 mb-3">🎫 예약 현황</h3>
+            <div className="space-y-2">
+              {project.tasks.slice(0, 4).map(task => (
+                <div key={task.id} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <span>{task.status === 'completed' ? '✅' : '⏳'}</span>
+                    <span className={task.status === 'completed' ? 'text-gray-500' : 'text-gray-800'}>{task.title}</span>
+                  </div>
+                  {task.estimatedCost > 0 && (
+                    <span className="text-xs text-gray-500">{formatCurrency(task.estimatedCost)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 예산 배분 미니 */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-sm text-gray-900">💰 예산 배분</h3>
+              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">총 {project.travelers}명</span>
+            </div>
+            <div className="space-y-2">
+              {Object.entries(project.budget.categories).map(([cat, data]) => (
+                <div key={cat} className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-700">{cat}</span>
+                    <span className="text-gray-500">{formatCurrency(data.spent)} / {formatCurrency(data.budget)}</span>
+                  </div>
+                  <div className="bg-gray-100 rounded-full h-2">
+                    <div className="bg-primary-500 rounded-full h-2 transition-all"
+                      style={{width: `${data.budget > 0 ? Math.min((data.spent / data.budget) * 100, 100) : 0}%`}}></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 일정표 탭 ───────────────────────────────────────
+    function ItineraryTab({ itinerary, state, dispatch }) {
+      const [activeDay, setActiveDay] = useState(1);
+      const [regenerating, setRegenerating] = useState(false);
+
+      if (!itinerary) {
+        return (
+          <div className="p-8 text-center text-gray-500">
+            <p className="text-4xl mb-2">📅</p>
+            <p className="text-sm">일정이 아직 생성되지 않았어요</p>
+            <button onClick={async () => {
+              if (!state.project) return;
+              setRegenerating(true);
+              // 날짜 기반 일수 계산 (없으면 기본 4일)
+              const calcDays = (start, end) => {
+                if (!start || !end) return 4;
+                const s = new Date(start);
+                const e = new Date(end);
+                return Math.ceil((e - s) / (1000 * 60 * 60 * 24)) + 1;
+              };
+              const duration = calcDays(state.project.dates?.start, state.project.dates?.end);
+              const result = await api('/api/itinerary/generate', {
+                method: 'POST',
+                body: JSON.stringify({
+                  destinationId: state.project.destination.id,
+                  duration: duration,
+                  travelers: state.project.travelers,
+                  budget: state.project.budget.total,
+                  departure: state.project.departure || 'ICN',
+                  startDate: state.project.dates?.start
+                })
+              });
+              if (result) dispatch({ type: 'SET_ITINERARY', payload: result });
+              setRegenerating(false);
+            }} className="mt-3 bg-primary-600 text-white px-4 py-2 rounded-lg text-sm">
+              {regenerating ? '생성 중...' : '🤖 AI로 일정 생성'}
+            </button>
+          </div>
+        );
+      }
+
+      const day = itinerary.days.find(d => d.dayNumber === activeDay) || itinerary.days[0];
+      const totalDays = itinerary.days.length;
+      const travelers = state.project?.travelers || 1;
+
+      // 편도 항공비 계산 (왕복의 절반)
+      const destName = state.project?.destination?.name || '';
+      const flightRoundtripMap = {
+        '도쿄': 500000, '오사카': 500000, '후쿠오카': 400000, '삿포로': 550000, '오키나와': 500000,
+        '방콕': 600000, '다낭': 500000, '호치민': 550000, '나트랑': 550000,
+        '싱가포르': 650000, '발리': 750000, '세부': 450000,
+        '타이베이': 400000, '홍콩': 450000,
+        '괌': 700000, '사이판': 700000, '하와이': 1200000,
+        '파리': 1300000, '런던': 1300000, '로마': 1200000, '바르셀로나': 1200000,
+        '이스탄불': 1000000,
+        '뉴욕': 1500000, 'LA': 1300000, '시드니': 1100000,
+        '제주도': 200000
+      };
+      const oneWayFlight = Math.round((flightRoundtripMap[destName] || 0) / 2);
+
+      // Day별 총 비용 계산 (항공비 포함)
+      const getDayCost = (d) => {
+        let base = d.totalCost || 0;
+        if (d.dayNumber === 1 && oneWayFlight > 0) base += oneWayFlight;
+        if (d.dayNumber === totalDays && oneWayFlight > 0) base += oneWayFlight;
+        return base;
+      };
+
+      const regenerateItinerary = async () => {
+        if (!state.project || !state.project.destination) {
+          alert('목적지 정보가 없습니다.');
+          return;
+        }
+        setRegenerating(true);
+        try {
+          const destId = state.project.destination.id || state.project.destination.name;
+          const dates = state.project.dates || {};
+          // 설정 날짜 기반 일수 계산
+          let calcDuration = itinerary.days.length;
+          if (dates.start && dates.end) {
+            const s = new Date(dates.start);
+            const e = new Date(dates.end);
+            calcDuration = Math.ceil((e - s) / (1000 * 60 * 60 * 24)) + 1;
+          }
+          console.log('🔄 AI 일정 재생성:', { destId, duration: calcDuration, startDate: dates.start });
+
+          const result = await api('/api/itinerary/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+              destinationId: destId,
+              duration: calcDuration,
+              travelers: state.project.travelers,
+              budget: state.project.budget?.total || 2000000,
+              startDate: dates.start
+            })
+          });
+
+          if (result && result.days) {
+            console.log('✅ AI 일정 생성 성공:', result.days.length, '일');
+            dispatch({ type: 'SET_ITINERARY', payload: result });
+          } else {
+            console.error('❌ AI 일정 생성 실패:', result);
+            alert('일정 생성에 실패했습니다. 다시 시도해주세요.');
+          }
+        } catch (err) {
+          console.error('❌ AI 일정 생성 오류:', err);
+          alert('일정 생성 중 오류가 발생했습니다.');
+        }
+        setRegenerating(false);
+      };
+
+      const typeColors = {
+        flight: 'bg-blue-100 text-blue-700 border-blue-200',
+        transport: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+        hotel: 'bg-purple-100 text-purple-700 border-purple-200',
+        food: 'bg-orange-100 text-orange-700 border-orange-200',
+        activity: 'bg-green-100 text-green-700 border-green-200',
+        shopping: 'bg-pink-100 text-pink-700 border-pink-200'
+      };
+
+      return (
+        <div>
+          {/* Day 탭 */}
+          <div className="flex overflow-x-auto border-b border-gray-100 px-2 py-2 gap-1 bg-gray-50 scrollbar-none">
+            {itinerary.days.map(d => (
+              <button key={d.dayNumber} onClick={() => setActiveDay(d.dayNumber)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activeDay === d.dayNumber ? 'bg-primary-600 text-white shadow-sm' : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}>
+                Day{d.dayNumber}
+              </button>
+            ))}
+          </div>
+
+          {/* Day 헤더 */}
+          <div className="px-4 py-3 bg-white border-b border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-gray-900">Day {day.dayNumber} <span className="text-sm font-normal text-gray-500">{day.date}</span></h3>
+                <p className="text-xs text-gray-500">{day.title}</p>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-bold text-primary-600 bg-primary-50 px-2 py-1 rounded-lg">
+                  💰 {formatCurrency(getDayCost(day))}
+                </span>
+                {travelers > 1 && <p className="text-[9px] text-gray-400 mt-0.5">{travelers}명 총 {formatCurrency(getDayCost(day) * travelers)}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* 타임슬롯 */}
+          <div className="px-4 py-3 space-y-1">
+            {day.slots.map((slot, i) => {
+              const colorClass = typeColors[slot.type] || 'bg-gray-100 text-gray-700 border-gray-200';
+              // 출발/귀국 슬롯에 편도 항공비 자동 부여
+              const isDepart = slot.type === 'flight' && (slot.title.includes('출발') || slot.title.includes('귀국'));
+              const displayCost = isDepart && slot.cost === 0 && oneWayFlight > 0 ? oneWayFlight : slot.cost;
+              return (
+                <div key={i} className="flex gap-3 items-start py-2">
+                  <div className="w-12 text-xs font-mono text-gray-500 pt-0.5 flex-shrink-0">{slot.time}</div>
+                  <div className="flex-1">
+                    <div className={`rounded-lg border p-2.5 ${colorClass}`}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-base">{slot.icon}</span>
+                          <span className="font-medium text-sm">{slot.title}</span>
+                        </div>
+                        {displayCost > 0 && (
+                          <div className="text-right ml-2 flex-shrink-0">
+                            <span className="text-xs font-bold">{formatCurrency(displayCost)}</span>
+                            {isDepart && <p className="text-[9px] opacity-60">1인 편도</p>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs opacity-75">📍 {slot.location}</span>
+                        {slot.notes && <span className="text-xs opacity-60">· {slot.notes}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* AI 재생성 버튼 */}
+          <div className="px-4 py-4">
+            <button onClick={regenerateItinerary} disabled={regenerating}
+              className="w-full py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 disabled:opacity-50 transition-all">
+              {regenerating ? '⏳ 생성 중...' : '🤖 AI로 일정 다시 생성'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 할일 탭 ─────────────────────────────────────────
+    function TasksTab({ project, dispatch }) {
+      const toggleTask = (taskId) => {
+        const task = project.tasks.find(t => t.id === taskId);
+        if (!task) return;
+        const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+        dispatch({ type: 'UPDATE_TASK', payload: { id: taskId, status: newStatus } });
+
+        // 마일스톤 연동
+        if (newStatus === 'completed' && task.milestone) {
+          const milestoneTasks = project.tasks.filter(t => t.milestone === task.milestone);
+          const allDone = milestoneTasks.every(t => t.id === taskId ? true : t.status === 'completed');
+          // 마일스톤 업데이트는 프로젝트 수준에서 처리
+        }
+      };
+
+      const categoryIcons = {
+        transportation: '✈️', accommodation: '🏨', insurance: '🛡️',
+        communication: '📱', finance: '💱', preparation: '🧳'
+      };
+
+      const priorityColors = {
+        high: 'border-l-red-500', medium: 'border-l-yellow-500', low: 'border-l-green-500'
+      };
+
+      return (
+        <div className="p-4 space-y-3">
+          {/* 진행 요약 */}
+          <div className="bg-primary-50 rounded-xl p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">📋</span>
+              <span className="text-sm font-medium text-primary-800">
+                {project.tasks.filter(t => t.status === 'completed').length} / {project.tasks.length} 완료
+              </span>
+            </div>
+            <span className="text-xs text-primary-600 font-bold">
+              {Math.round((project.tasks.filter(t => t.status === 'completed').length / project.tasks.length) * 100)}%
+            </span>
+          </div>
+
+          {/* 할일 리스트 */}
+          {project.tasks.map(task => (
+            <div key={task.id}
+              className={`bg-white border rounded-xl p-3 border-l-4 ${priorityColors[task.priority] || ''} ${task.status === 'completed' ? 'opacity-60' : ''}`}>
+              <div className="flex items-start gap-3">
+                <button onClick={() => toggleTask(task.id)}
+                  className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${
+                    task.status === 'completed' ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 hover:border-primary-400'
+                  }`}>
+                  {task.status === 'completed' && <span className="text-xs">✓</span>}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{categoryIcons[task.category] || '📌'}</span>
+                    <span className={`text-sm font-medium ${task.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                      {task.title}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    {task.estimatedCost > 0 && (
+                      <span className="text-xs text-gray-500">💰 {formatCurrency(task.estimatedCost)}</span>
+                    )}
+                    <span className="text-xs text-gray-400">{task.milestone?.toUpperCase()}</span>
+                  </div>
+                  {/* 예약 링크 */}
+                  {task.links && task.links.length > 0 && task.status !== 'completed' && (
+                    <div className="flex gap-1.5 mt-2 flex-wrap">
+                      {task.links.map((link, i) => (
+                        <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
+                          className="text-xs bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full hover:bg-primary-100 transition-all">
+                          🔗 {link.label}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── 예산 관리 컴포넌트들 ─────────────────────────────────────
+
+    // 1. 예산 알림 배너
+    function BudgetAlertsBanner({ project }) {
+      const [alerts, setAlerts] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        async function fetchAlerts() {
+          setLoading(true);
+          const data = await api(`/api/budget/alerts/${project.id}`);
+          setAlerts(data);
+          setLoading(false);
+        }
+        fetchAlerts();
+      }, [project.id, project.budget]);
+
+      if (loading || !alerts || !alerts.hasAlerts) return null;
+
+      const criticalAlerts = alerts.alerts.filter(a => a.level === 'over' || a.level === 'danger');
+      if (criticalAlerts.length === 0) return null;
+
+      const levelColors = {
+        over: 'bg-red-100 border-red-300 text-red-800',
+        danger: 'bg-orange-100 border-orange-300 text-orange-800',
+        warning: 'bg-yellow-100 border-yellow-300 text-yellow-800'
+      };
+
+      return (
+        <div className="mb-4 space-y-2">
+          {criticalAlerts.map((alert, i) => (
+            <div key={i} className={`rounded-xl border-2 p-3 ${levelColors[alert.level]}`}>
+              <p className="text-sm font-medium">{alert.message}</p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // 2. 거래 카드
+    function TransactionCard({ transaction, onDelete }) {
+      const categoryIcons = {
+        accommodation: '🏨', food: '🍜', activities: '🎯',
+        transportation: '🚃', shopping: '🛍️', other: '📦'
+      };
+
+      return (
+        <div className="bg-white border border-gray-200 rounded-lg p-3">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start gap-2 flex-1">
+              <span className="text-lg">{categoryIcons[transaction.category] || '💰'}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{transaction.description || '거래 내역'}</p>
+                <p className="text-xs text-gray-500">{new Date(transaction.date).toLocaleDateString('ko-KR')}</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-bold text-gray-900">{formatCurrency(transaction.amount)}</p>
+              {transaction.currency !== 'KRW' && (
+                <p className="text-xs text-gray-500">{transaction.currency}</p>
+              )}
+            </div>
+          </div>
+          {transaction.receipt_url && (
+            <p className="text-xs text-primary-600 mt-2">📎 영수증 첨부됨</p>
+          )}
+          <button
+            onClick={() => onDelete(transaction.id)}
+            className="mt-2 text-xs text-red-500 hover:text-red-700"
+          >
+            삭제
+          </button>
+        </div>
+      );
+    }
+
+    // 3. 거래 추가 폼
+    function AddTransactionForm({ project, category, onClose, onSuccess }) {
+      const [formData, setFormData] = useState({
+        description: '',
+        amount: '',
+        category: category || 'accommodation',
+        date: new Date().toISOString().split('T')[0],
+        currency: 'KRW'
+      });
+      const [submitting, setSubmitting] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setSubmitting(true);
+
+        const amountInKRW = parseInt(formData.amount) * 10000;
+        const result = await api('/api/transactions', {
+          method: 'POST',
+          body: JSON.stringify({
+            projectId: project.id,
+            ...formData,
+            amount: amountInKRW
+          })
+        });
+
+        setSubmitting(false);
+        if (result) {
+          onSuccess && onSuccess();
+          onClose();
+        }
+      };
+
+      return (
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">설명</label>
+            <input
+              type="text"
+              required
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2"
+              placeholder="예: 호텔 숙박비"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">금액 (만원)</label>
+            <input
+              type="number"
+              required
+              value={formData.amount}
+              onChange={(e) => setFormData({...formData, amount: e.target.value})}
+              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2"
+              placeholder="10 (= 100,000원)"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">카테고리</label>
+            <select
+              value={formData.category}
+              onChange={(e) => setFormData({...formData, category: e.target.value})}
+              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2"
+            >
+              <option value="accommodation">🏨 숙소</option>
+              <option value="food">🍜 식비</option>
+              <option value="activities">🎯 활동</option>
+              <option value="transportation">🚃 교통</option>
+              <option value="shopping">🛍️ 쇼핑</option>
+              <option value="other">📦 기타</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">날짜</label>
+            <input
+              type="date"
+              required
+              value={formData.date}
+              onChange={(e) => setFormData({...formData, date: e.target.value})}
+              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 bg-primary-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+            >
+              {submitting ? '추가 중...' : '거래 추가'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 bg-gray-200 text-gray-700 rounded-lg text-sm"
+            >
+              취소
+            </button>
+          </div>
+        </form>
+      );
+    }
+
+    // 4. 거래 내역 사이드 패널
+    function TransactionsSidePanel({ project, category, isOpen, onClose, onTransactionAdded }) {
+      const [transactions, setTransactions] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [showAddForm, setShowAddForm] = useState(false);
+
+      useEffect(() => {
+        if (isOpen) {
+          fetchTransactions();
+        }
+      }, [isOpen, category]);
+
+      const fetchTransactions = async () => {
+        setLoading(true);
+        const endpoint = category
+          ? `/api/transactions/project/${project.id}?category=${category}`
+          : `/api/transactions/project/${project.id}`;
+        const data = await api(endpoint);
+        setTransactions(data || []);
+        setLoading(false);
+      };
+
+      const handleDelete = async (transactionId) => {
+        if (!confirm('이 거래를 삭제하시겠습니까?')) return;
+        const result = await api(`/api/transactions/${transactionId}`, { method: 'DELETE' });
+        if (result) {
+          fetchTransactions();
+          onTransactionAdded && onTransactionAdded();
+        }
+      };
+
+      if (!isOpen) return null;
+
+      return (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={onClose}></div>
+          <div className="relative w-full max-w-md bg-white h-full overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-4 z-10">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-gray-900">
+                  {category ? `${category} 거래 내역` : '전체 거래 내역'}
+                </h3>
+                <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
+              </div>
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                className="mt-3 w-full bg-primary-600 text-white rounded-lg py-2 text-sm font-medium"
+              >
+                + 거래 추가
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              {showAddForm && (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                  <AddTransactionForm
+                    project={project}
+                    category={category}
+                    onClose={() => setShowAddForm(false)}
+                    onSuccess={() => {
+                      fetchTransactions();
+                      onTransactionAdded && onTransactionAdded();
+                    }}
+                  />
+                </div>
+              )}
+
+              {loading ? (
+                <p className="text-center text-gray-500 py-8">로딩 중...</p>
+              ) : transactions.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">거래 내역이 없습니다</p>
+              ) : (
+                transactions.map(tx => (
+                  <TransactionCard key={tx.id} transaction={tx} onDelete={handleDelete} />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 5. 추천 카드
+    function BudgetRecommendationCard({ recommendation, type }) {
+      const rec = recommendation;
+      // 가격 표시 (AI 데이터 또는 fallback 데이터 모두 지원)
+      const priceText = rec.priceRange || (
+        type === 'accommodation' || type === '숙소' ? (rec.pricePerNight ? `${formatCurrency(rec.pricePerNight)}/박` : '') :
+        type === 'food' || type === '식비' ? (rec.pricePerPerson ? `${formatCurrency(rec.pricePerPerson)}/인` : '') :
+        rec.price ? `${formatCurrency(rec.price)}${rec.duration ? ` · ${rec.duration}` : ''}${rec.provider ? ` · ${rec.provider}` : ''}` : ''
+      );
+
+      return (
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <h4 className="font-bold text-gray-900">{rec.name}</h4>
+              {rec.type && <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{rec.type}</span>}
+            </div>
+            {rec.rating && (
+              <div className="flex items-center gap-1">
+                <span className="text-yellow-500">⭐</span>
+                <span className="text-sm font-medium">{rec.rating}</span>
+              </div>
+            )}
+          </div>
+
+          {rec.location && <p className="text-xs text-gray-600 mb-2">📍 {rec.location}</p>}
+
+          {priceText && (
+            <p className="text-sm text-primary-700 font-medium mb-2">{priceText}</p>
+          )}
+
+          {(rec.reason || rec.tip) && (
+            <p className="text-xs text-gray-700 mb-3">💡 {rec.reason || rec.tip}</p>
+          )}
+
+          {rec.bookingUrl && (
+            <a href={rec.bookingUrl} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-blue-600 hover:underline">예약 사이트 바로가기 →</a>
+          )}
+
+          {rec.reviews && rec.reviews.length > 0 && (
+            <div className="space-y-2 mb-3">
+              <p className="text-xs font-medium text-gray-500">최근 리뷰</p>
+              {rec.reviews.slice(0, 2).map((review, i) => (
+                <div key={i} className="bg-gray-50 rounded-lg p-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-medium text-gray-700">{review.user}</span>
+                    <span className="text-xs text-yellow-500">{'⭐'.repeat(review.rating)}</span>
+                  </div>
+                  <p className="text-xs text-gray-600">{review.comment}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {recommendation.features && (
+            <div className="flex flex-wrap gap-1">
+              {recommendation.features.slice(0, 3).map((feature, i) => (
+                <span key={i} className="text-xs bg-primary-50 text-primary-700 px-2 py-1 rounded-full">
+                  {feature}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 6. 추천 모달
+    function RecommendationsModal({ project, category, isOpen, onClose }) {
+      const [recommendations, setRecommendations] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        if (isOpen && category) {
+          fetchRecommendations();
+        }
+      }, [isOpen, category]);
+
+      const fetchRecommendations = async () => {
+        setLoading(true);
+        const data = await api(`/api/recommend/${category}`, {
+          method: 'POST',
+          body: JSON.stringify({ projectId: project.id })
+        });
+        setRecommendations(data);
+        setLoading(false);
+      };
+
+      if (!isOpen) return null;
+
+      const categoryNames = {
+        accommodation: '숙소', food: '식비',
+        activities: '활동', transportation: '교통'
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={onClose}></div>
+          <div className="relative w-full max-w-2xl bg-white rounded-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-lg text-gray-900">
+                  {categoryNames[category]} 추천
+                </h3>
+                <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-xl">✕</button>
+              </div>
+              {recommendations?.fromCache && (
+                <p className="text-xs text-gray-500 mt-1">💾 캐시된 추천 (24시간 유효)</p>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                  <p className="text-sm text-gray-500 mt-3">AI 추천 생성 중...</p>
+                </div>
+              ) : !recommendations || !recommendations.recommendations ? (
+                <p className="text-center text-gray-500 py-8">추천을 불러올 수 없습니다</p>
+              ) : (
+                recommendations.recommendations.map((rec, i) => (
+                  <BudgetRecommendationCard key={i} recommendation={rec} type={category} />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 7. 예산 카테고리 카드 (클릭 가능)
+    function BudgetCategoryCard({ category, data, icon, color, onShowRecommendations, onShowTransactions }) {
+      const allocated = data.allocated || data.budget || 0;
+      const spent = data.spent || 0;
+      const pct = allocated > 0 ? Math.round((spent / allocated) * 100) : 0;
+      const categoryMap = {
+        '숙소': 'accommodation',
+        '식비': 'food',
+        '활동': 'activities',
+        '교통': 'transportation'
+      };
+      const categoryKey = categoryMap[category];
+
+      return (
+        <div
+          className="bg-white border-2 border-gray-200 rounded-xl p-4 hover:border-primary-300 hover:shadow-md transition-all cursor-pointer"
+          onClick={() => onShowRecommendations(categoryKey)}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">{icon}</span>
+              <span className="text-sm font-bold text-gray-900">{category}</span>
+            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onShowTransactions(categoryKey);
+              }}
+              className="text-xs text-primary-600 hover:text-primary-800"
+            >
+              내역 →
+            </button>
+          </div>
+
+          <div className="bg-gray-100 rounded-full h-3 mb-2">
+            <div
+              className={`rounded-full h-3 transition-all duration-500 ${color}`}
+              style={{width: `${Math.min(pct, 100)}%`}}
+            ></div>
+          </div>
+
+          <div className="flex justify-between text-xs">
+            <span className="text-gray-600">
+              {formatCurrency(spent)} / {formatCurrency(allocated)}
+            </span>
+            <span className={pct > 100 ? 'text-red-600 font-bold' : pct > 80 ? 'text-orange-600 font-bold' : 'text-gray-500'}>
+              {pct}%
+            </span>
+          </div>
+
+          {pct > 100 && (
+            <p className="text-xs text-red-500 mt-2 font-medium">⚠️ 예산 {pct - 100}% 초과!</p>
+          )}
+
+          <p className="text-xs text-primary-600 mt-2 font-medium">
+            💡 클릭하여 AI 추천 보기
+          </p>
+        </div>
+      );
+    }
+
+    // ─── 예산 탭 (개선된 버전) ─────────────────────────────────────────
+    function BudgetTab({ project, totalSpent, dispatch }) {
+      const budget = project.budget;
+      const remaining = budget.total - totalSpent;
+      const usagePercent = Math.round((totalSpent / budget.total) * 100);
+
+      const [selectedCategory, setSelectedCategory] = useState(null);
+      const [showRecommendations, setShowRecommendations] = useState(false);
+      const [showTransactions, setShowTransactions] = useState(false);
+      const [refreshKey, setRefreshKey] = useState(0);
+
+      const catIcons = { 숙소: '🏨', 식비: '🍜', 활동: '🎯', 교통: '🚃', 기타: '📦' };
+      const catColors = {
+        숙소: 'bg-purple-500', 식비: 'bg-orange-500',
+        활동: 'bg-green-500', 교통: 'bg-indigo-500', 기타: 'bg-gray-500'
+      };
+
+      const handleTransactionAdded = async () => {
+        // Refresh project data from backend
+        const updated = await api(`/api/projects/${project.id}`);
+        if (updated) {
+          dispatch({ type: 'SET_PROJECT', payload: updated });
+          setRefreshKey(prev => prev + 1);
+        }
+      };
+
+      const mainCategories = ['숙소', '식비', '활동', '교통'];
+
+      return (
+        <div className="p-4 space-y-4">
+          {/* 예산 알림 배너 */}
+          <BudgetAlertsBanner project={project} key={refreshKey} />
+
+          {/* 전체 예산 카드 */}
+          <div className="bg-gradient-to-br from-primary-500 to-purple-600 text-white rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-purple-200">총 예산</p>
+              <span className="text-xs bg-white/20 px-2 py-1 rounded-full">총 {project.travelers}명</span>
+            </div>
+            <p className="text-3xl font-bold">{formatCurrency(budget.total)}</p>
+            <div className="mt-3 flex items-center gap-3">
+              <div className="flex-1 bg-white/20 rounded-full h-3">
+                <div className={`rounded-full h-3 transition-all duration-500 ${usagePercent > 90 ? 'bg-red-400' : usagePercent > 70 ? 'bg-yellow-400' : 'bg-white'}`}
+                  style={{width: `${Math.min(usagePercent, 100)}%`}}></div>
+              </div>
+              <span className="text-sm font-bold">{usagePercent}%</span>
+            </div>
+            <div className="flex justify-between mt-2 text-xs text-purple-200">
+              <span>사용: {formatCurrency(totalSpent)}</span>
+              <span>잔여: {formatCurrency(remaining)}</span>
+            </div>
+          </div>
+
+          {/* 카테고리별 카드 (클릭 가능) */}
+          <div className="grid grid-cols-2 gap-3">
+            {mainCategories.map(cat => {
+              const data = budget.categories[cat] || { budget: 0, allocated: 0, spent: 0 };
+              return (
+                <BudgetCategoryCard
+                  key={cat}
+                  category={cat}
+                  data={data}
+                  icon={catIcons[cat]}
+                  color={catColors[cat]}
+                  onShowRecommendations={(categoryKey) => {
+                    setSelectedCategory(categoryKey);
+                    setShowRecommendations(true);
+                  }}
+                  onShowTransactions={(categoryKey) => {
+                    setSelectedCategory(categoryKey);
+                    setShowTransactions(true);
+                  }}
+                />
+              );
+            })}
+          </div>
+
+          {/* 예산 팁 */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3">
+            <h4 className="text-xs font-bold text-yellow-800 mb-1">💡 예산 절약 팁</h4>
+            <ul className="text-xs text-yellow-700 space-y-1">
+              <li>• LCC 항공사 이용 시 최대 40% 절약</li>
+              <li>• 호텔 대신 에어비앤비로 20-30% 절약</li>
+              <li>• 현지 마트/편의점 활용으로 식비 절약</li>
+              <li>• 교통패스(JR패스 등) 구매로 교통비 절약</li>
+            </ul>
+          </div>
+
+          {/* 추천 모달 */}
+          <RecommendationsModal
+            project={project}
+            category={selectedCategory}
+            isOpen={showRecommendations}
+            onClose={() => setShowRecommendations(false)}
+          />
+
+          {/* 거래 내역 사이드 패널 */}
+          <TransactionsSidePanel
+            project={project}
+            category={selectedCategory}
+            isOpen={showTransactions}
+            onClose={() => setShowTransactions(false)}
+            onTransactionAdded={handleTransactionAdded}
+          />
+        </div>
+      );
+    }
+
+    // ─── 지도 탭 ─────────────────────────────────────────
+    function MapTab({ itinerary, project }) {
+      const [activeDay, setActiveDay] = useState(1);
+
+      // 목적지별 좌표
+      const destCoords = {
+        osaka: { lat: 34.6937, lng: 135.5023, zoom: 13 },
+        tokyo: { lat: 35.6762, lng: 139.6503, zoom: 12 },
+        danang: { lat: 16.0544, lng: 108.2022, zoom: 13 },
+        bali: { lat: -8.3405, lng: 115.0920, zoom: 11 },
+        bangkok: { lat: 13.7563, lng: 100.5018, zoom: 13 },
+        paris: { lat: 48.8566, lng: 2.3522, zoom: 13 },
+        jeju: { lat: 33.4996, lng: 126.5312, zoom: 11 },
+        okinawa: { lat: 26.3344, lng: 127.8056, zoom: 11 },
+        singapore: { lat: 1.3521, lng: 103.8198, zoom: 12 },
+        hawaii: { lat: 21.3069, lng: -157.8583, zoom: 12 }
+      };
+
+      // 장소별 검색 좌표 (Google Maps에서 장소 검색용)
+      const locationCoords = {
+        '도톤보리': { lat: 34.6687, lng: 135.5013 },
+        '신사이바시': { lat: 34.6726, lng: 135.5007 },
+        'USJ': { lat: 34.6654, lng: 135.4323 },
+        '오사카성': { lat: 34.6873, lng: 135.5262 },
+        '구로몬시장': { lat: 34.6628, lng: 135.5069 },
+        '시부야': { lat: 35.6580, lng: 139.7016 },
+        '하라주쿠': { lat: 35.6702, lng: 139.7026 },
+        '아사쿠사': { lat: 35.7148, lng: 139.7967 },
+        '미케비치': { lat: 16.0367, lng: 108.2462 },
+        '바나힐': { lat: 15.9977, lng: 107.9875 },
+        '호이안': { lat: 15.8801, lng: 108.3380 },
+        '우붓': { lat: -8.5069, lng: 115.2625 },
+        '스미냑': { lat: -8.6913, lng: 115.1683 },
+        '쿠타비치': { lat: -8.7184, lng: 115.1686 },
+        '협재해수욕장': { lat: 33.3939, lng: 126.2397 },
+        '성산일출봉': { lat: 33.4582, lng: 126.9425 },
+      };
+
+      const coords = destCoords[project?.destination?.id] || { lat: 35.6762, lng: 139.6503, zoom: 5 };
+
+      if (!itinerary) {
+        return (
+          <div className="p-8 text-center text-gray-500">
+            <p className="text-4xl mb-2">🗺️</p>
+            <p className="text-sm">일정을 먼저 생성하면 지도에 표시됩니다</p>
+          </div>
+        );
+      }
+
+      const day = itinerary.days.find(d => d.dayNumber === activeDay) || itinerary.days[0];
+      const places = day.slots.filter(s => s.location && s.type !== 'flight');
+
+      // Google Maps Embed URL (API 키 불필요)
+      const mapQuery = encodeURIComponent(`${project.destination.name} ${day.slots[0]?.location || ''}`);
+      const mapUrl = `https://www.google.com/maps/embed/v1/search?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodeURIComponent(project.destination.name + ' 관광')}&center=${coords.lat},${coords.lng}&zoom=${coords.zoom || 13}&language=ko`;
+
+      return (
+        <div className="flex flex-col h-full">
+          {/* Day 선택 */}
+          <div className="flex overflow-x-auto border-b border-gray-100 px-2 py-2 gap-1 bg-gray-50 scrollbar-none">
+            {itinerary.days.map(d => (
+              <button key={d.dayNumber} onClick={() => setActiveDay(d.dayNumber)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activeDay === d.dayNumber ? 'bg-primary-600 text-white shadow-sm' : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}>
+                Day{d.dayNumber}
+              </button>
+            ))}
+          </div>
+
+          {/* 지도 */}
+          <div className="relative" style={{height: '250px'}}>
+            <iframe
+              width="100%" height="250" style={{border:0}}
+              loading="lazy" referrerPolicy="no-referrer-when-downgrade"
+              src={`https://maps.google.com/maps?q=${encodeURIComponent(project.destination.name)}&t=&z=${coords.zoom || 13}&ie=UTF8&iwloc=&output=embed`}
+            ></iframe>
+          </div>
+
+          {/* 장소 리스트 */}
+          <div className="flex-1 overflow-y-auto px-4 py-3">
+            <h4 className="text-xs font-bold text-gray-500 mb-2">📍 Day {day.dayNumber} 방문 장소</h4>
+            <div className="space-y-2">
+              {places.map((slot, i) => (
+                <a key={i}
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(slot.location + ' ' + (slot.title || '') + ' ' + project.destination.country)}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-2.5 bg-white border border-gray-200 rounded-lg hover:border-primary-300 hover:shadow-sm transition-all">
+                  <span className="text-lg">{slot.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{slot.title}</p>
+                    <p className="text-xs text-gray-500">📍 {slot.location} · {slot.time}</p>
+                  </div>
+                  <span className="text-xs text-primary-600 flex-shrink-0">지도 →</span>
+                </a>
+              ))}
+            </div>
+
+            {/* 전체 경로 보기 */}
+            {places.length >= 2 && (
+              <a href={`https://www.google.com/maps/dir/${places.map(p => encodeURIComponent(p.location + ' ' + project.destination.name)).join('/')}`}
+                target="_blank" rel="noopener noreferrer"
+                className="mt-3 flex items-center justify-center gap-2 w-full py-2.5 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium hover:bg-blue-100 transition-all">
+                🚗 Day {day.dayNumber} 전체 경로 보기 (Google Maps)
+              </a>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 비용 시뮬레이션 + 구매 연계 탭 ─────────────────────
+    function SimulatorTab({ project, state, dispatch }) {
+      const dest = project.destination;
+      const userSettings = state?.userSettings || { homeCity: '서울', defaultTravelers: 2, fuelEfficiency: 10, fuelPrice: 1700 };
+      const [simTravelers, setSimTravelers] = useState(project.travelers || userSettings.defaultTravelers || 2);
+      const [simDays, setSimDays] = useState(dest?.sampleItinerary?.days || 5);
+      const [simType, setSimType] = useState(project.travelType || 'free');
+      const [simClass, setSimClass] = useState('economy'); // economy, business
+      const [simHotel, setSimHotel] = useState('mid'); // budget, mid, luxury
+      const [alerts, setAlerts] = useState([]);
+      const [alertEnabled, setAlertEnabled] = useState(false);
+      const [showSettings, setShowSettings] = useState(false);
+      const [fuelEfficiency, setFuelEfficiency] = useState(userSettings.fuelEfficiency || 10);
+      const [fuelPrice, setFuelPrice] = useState(userSettings.fuelPrice || 1700);
+
+      // 국내 목적지 판별 및 거리 계산
+      const domesticDestinations = {
+        '부산': { distance: 400, tollFee: 28000 },
+        '경주': { distance: 370, tollFee: 25000 },
+        '전주': { distance: 230, tollFee: 15000 },
+        '강릉': { distance: 210, tollFee: 12000 },
+        '속초': { distance: 180, tollFee: 10000 },
+        '여수': { distance: 380, tollFee: 26000 },
+        '광주': { distance: 290, tollFee: 18000 },
+        '대전': { distance: 150, tollFee: 10000 },
+        '대구': { distance: 300, tollFee: 20000 },
+        '울산': { distance: 380, tollFee: 26000 },
+        '제주도': { distance: 0, tollFee: 0, needsFlight: true },
+        '제주': { distance: 0, tollFee: 0, needsFlight: true },
+        '춘천': { distance: 85, tollFee: 5000 },
+        '안동': { distance: 260, tollFee: 17000 },
+        '통영': { distance: 350, tollFee: 24000 },
+        '거제': { distance: 380, tollFee: 26000 },
+        '목포': { distance: 350, tollFee: 24000 },
+        '순천': { distance: 340, tollFee: 23000 }
+      };
+
+      const destName = dest?.name || '';
+      const country = dest?.country || '';
+      const isDomestic = country === '대한민국' || country === '한국' || country === 'Korea' || country === 'South Korea' || Object.keys(domesticDestinations).includes(destName);
+      const domesticInfo = domesticDestinations[destName];
+      const isJeju = destName.includes('제주');
+      const needsCar = isDomestic && !isJeju;
+
+      // 비용 계산 엔진 - 단위 오류 방지 검증 포함
+      let baseCost = dest?.avgCost || 1000000;
+      // 100,000원 미만이면 단위 오류로 판단하여 x100 처리
+      if (baseCost < 100000) {
+        console.warn(`⚠️ baseCost 단위 오류 감지: ${baseCost}원 → ${baseCost * 100}원`);
+        baseCost = baseCost * 100;
+      }
+      // 최소 200,000원 보장 (국내여행은 더 낮은 기준)
+      if (baseCost < 200000 && !isDomestic) baseCost = 500000;
+      if (baseCost < 100000 && isDomestic) baseCost = 150000;
+
+      const flightMultiplier = simClass === 'business' ? 2.5 : 1;
+      const hotelMultiplier = simHotel === 'luxury' ? 2.2 : simHotel === 'budget' ? 0.6 : 1;
+      const typeDiscount = simType === 'package' ? 0.8 : 1;
+
+      // 자동차 비용 계산 (국내여행용)
+      const distance = domesticInfo?.distance || 300; // 기본 300km
+      const tollFee = domesticInfo?.tollFee || 20000; // 기본 톨비
+      const fuelCost = Math.round((distance * 2) / fuelEfficiency * fuelPrice); // 왕복 유류비
+      const totalToll = tollFee * 2; // 왕복 톨비
+
+      // 항공료: 1인 왕복(Round-trip) 기준, 성수기(7~8월) 평균 시세 참고
+      const flightPriceMap = {
+        '도쿄': 500000, '오사카': 500000, '후쿠오카': 400000, '삿포로': 550000, '오키나와': 500000,
+        '방콕': 600000, '다낭': 500000, '호치민': 550000, '나트랑': 550000,
+        '싱가포르': 650000, '발리': 750000, '세부': 450000,
+        '타이베이': 400000, '홍콩': 450000,
+        '괌': 700000, '사이판': 700000, '하와이': 1200000,
+        '파리': 1300000, '런던': 1300000, '로마': 1200000, '바르셀로나': 1200000,
+        '이스탄불': 1000000,
+        '뉴욕': 1500000, 'LA': 1300000,
+        '시드니': 1100000,
+        '제주도': 200000, '부산': 0
+      };
+      // 편도 비행시간 (시간 단위, 직항 기준)
+      const flightHoursMap = {
+        '도쿄': 2.5, '오사카': 2, '후쿠오카': 1.5, '삿포로': 3.5, '오키나와': 2.5,
+        '방콕': 5.5, '다낭': 4.5, '호치민': 5.5, '나트랑': 5,
+        '싱가포르': 6.5, '발리': 7, '세부': 4.5,
+        '타이베이': 2.5, '홍콩': 3.5,
+        '괌': 4.5, '사이판': 4.5, '하와이': 9,
+        '파리': 12, '런던': 12, '로마': 11.5, '바르셀로나': 12,
+        '이스탄불': 11,
+        '뉴욕': 14, 'LA': 12,
+        '시드니': 10.5,
+        '제주도': 1, '부산': 0
+      };
+      const flightHours = flightHoursMap[destName] || null;
+      let flightCost = 0;
+      if (!needsCar) {
+        if (flightPriceMap[destName] !== undefined) {
+          flightCost = Math.round(flightPriceMap[destName] * flightMultiplier * typeDiscount);
+        } else if (isJeju) {
+          flightCost = Math.round(150000 * flightMultiplier);
+        } else {
+          // 가격표에 없는 도시는 baseCost 기반 추정
+          flightCost = Math.round(baseCost * 0.55 * flightMultiplier * typeDiscount);
+        }
+      }
+
+      const costs = {
+        flight: flightCost,  // 국내(제주 제외)는 0원
+        car: needsCar ? fuelCost + totalToll : 0,  // 자동차 비용 (유류비+톨비)
+        hotel: Math.round((isDomestic ? 100000 : baseCost * 0.25) * hotelMultiplier * (simDays / 4) * typeDiscount),
+        food: Math.round((isDomestic ? 50000 : 80000) * simDays * (simHotel === 'luxury' ? 1.5 : 1)),
+        activity: Math.round((isDomestic ? 30000 : baseCost * 0.15) * (simDays / 4)),
+        transport: needsCar ? 0 : Math.round(30000 * simDays),  // 자차이용시 현지교통비 0
+        insurance: isDomestic ? 0 : 15000,
+        sim: isDomestic ? 0 : 12000,
+        misc: Math.round((isDomestic ? 20000 : baseCost * 0.05) * simDays / 4)
+      };
+      const perPerson = Object.values(costs).reduce((a, b) => a + b, 0);
+      const totalCost = perPerson * simTravelers;
+      const usdRate = 1300;
+      const totalUSD = Math.round(totalCost / usdRate);
+
+      // 목적지 기반 구매 링크 생성 (destName, country는 위에서 이미 선언됨)
+      const airportMap = { '도쿄': 'nrt', '오사카': 'kix', '방콕': 'bkk', '다낭': 'dad', '파리': 'cdg', '발리': 'dps', '제주도': 'cju', '오키나와': 'oka', '싱가포르': 'sin', '하와이': 'hnl', '이스탄불': 'ist', '런던': 'lhr', '뉴욕': 'jfk', '로마': 'fco', '바르셀로나': 'bcn', '홍콩': 'hkg', '타이베이': 'tpe', '호치민': 'sgn', '세부': 'ceb', '괌': 'gum', '사이판': 'spn', '후쿠오카': 'fuk', '삿포로': 'cts', '나트랑': 'cam', '시드니': 'syd', 'LA': 'lax' };
+      const airportCode = airportMap[destName] || destName.toLowerCase();
+
+      const bookingLinks = [
+        { icon: '✈️', label: '항공권 검색', desc: '스카이스캐너에서 최저가 항공권', url: `https://www.skyscanner.co.kr/transport/flights/icn/${airportCode}/`, color: 'blue' },
+        { icon: '✈️', label: '네이버 항공', desc: '네이버 항공권 비교', url: `https://flight.naver.com/`, color: 'green' },
+        { icon: '🏨', label: '호텔 검색', desc: '부킹닷컴에서 숙소 비교', url: `https://www.booking.com/searchresults.ko.html?ss=${encodeURIComponent(destName)}`, color: 'blue' },
+        { icon: '🏨', label: '아고다', desc: '아시아 특가 숙소', url: `https://www.agoda.com/ko-kr/search?city=${encodeURIComponent(destName)}`, color: 'red' },
+        { icon: '🏠', label: '에어비앤비', desc: '현지 숙소 체험', url: `https://www.airbnb.co.kr/s/${encodeURIComponent(destName)}/homes`, color: 'pink' },
+        { icon: '📦', label: '패키지 검색', desc: '하나투어 패키지 상품', url: `https://www.hanatour.com/search?keyword=${encodeURIComponent(destName)}`, color: 'orange' },
+        { icon: '📦', label: '모두투어', desc: '패키지 상품 비교', url: `https://www.modetour.com/search?keyword=${encodeURIComponent(destName)}`, color: 'purple' }
+      ];
+
+      // 최저가 검색 링크 (실제 검색 사이트로 연결)
+      const searchLinks = [
+        { id: 1, icon: '✈️', title: `인천→${destName} 항공권 검색`, desc: '스카이스캐너에서 최저가 비교', url: bookingLinks[0].url, site: 'Skyscanner' },
+        { id: 2, icon: '✈️', title: `인천→${destName} 항공권`, desc: '네이버 항공권 가격 비교', url: bookingLinks[1].url, site: 'Naver' },
+        { id: 3, icon: '🏨', title: `${destName} 숙소 검색`, desc: '부킹닷컴에서 호텔 비교', url: bookingLinks[2].url, site: 'Booking.com' }
+      ];
+
+      const colorMap = { blue: 'bg-blue-50 border-blue-200 text-blue-700', green: 'bg-green-50 border-green-200 text-green-700', red: 'bg-red-50 border-red-200 text-red-700', pink: 'bg-pink-50 border-pink-200 text-pink-700', orange: 'bg-orange-50 border-orange-200 text-orange-700', purple: 'bg-purple-50 border-purple-200 text-purple-700' };
+
+      return (
+        <div className="p-4 space-y-4">
+          {/* 시뮬레이션 조건 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-3">
+            <h3 className="text-sm font-bold mb-3">🧮 비용 시뮬레이션</h3>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div>
+                <label className="text-[10px] text-gray-500">인원</label>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setSimTravelers(Math.max(1, simTravelers - 1))} className="w-7 h-7 rounded bg-gray-100 text-sm">-</button>
+                  <span className="text-sm font-bold w-8 text-center">{simTravelers}명</span>
+                  <button onClick={() => setSimTravelers(simTravelers + 1)} className="w-7 h-7 rounded bg-gray-100 text-sm">+</button>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-gray-500">기간</label>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setSimDays(Math.max(2, simDays - 1))} className="w-7 h-7 rounded bg-gray-100 text-sm">-</button>
+                  <span className="text-sm font-bold w-8 text-center">{simDays}일</span>
+                  <button onClick={() => setSimDays(simDays + 1)} className="w-7 h-7 rounded bg-gray-100 text-sm">+</button>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {[{v:'package',l:'패키지'},{v:'free',l:'자유여행'}].map(t => (
+                <button key={t.v} onClick={() => setSimType(t.v)}
+                  className={`text-xs py-1.5 rounded-lg border ${simType === t.v ? 'bg-primary-600 text-white border-primary-600' : 'bg-white border-gray-200'}`}>
+                  {t.l}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {!needsCar && (
+                <div>
+                  <label className="text-[10px] text-gray-500">항공 좌석</label>
+                  <div className="flex gap-1">
+                    {[{v:'economy',l:'이코노미'},{v:'business',l:'비즈니스'}].map(c => (
+                      <button key={c.v} onClick={() => setSimClass(c.v)}
+                        className={`text-[10px] flex-1 py-1 rounded border ${simClass === c.v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-200'}`}>
+                        {c.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className={needsCar ? 'col-span-2' : ''}>
+                <label className="text-[10px] text-gray-500">숙소 등급</label>
+                <div className="flex gap-1">
+                  {[{v:'budget',l:'저가'},{v:'mid',l:'중급'},{v:'luxury',l:'고급'}].map(h => (
+                    <button key={h.v} onClick={() => setSimHotel(h.v)}
+                      className={`text-[10px] flex-1 py-1 rounded border ${simHotel === h.v ? 'bg-purple-600 text-white border-purple-600' : 'bg-white border-gray-200'}`}>
+                      {h.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 전역 설정 섹션 */}
+            <div className="bg-gray-50 rounded-lg p-2 mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-gray-700">⚙️ 여행 설정</span>
+                <button onClick={() => setShowSettings(!showSettings)} className="text-[10px] text-gray-600 underline">
+                  {showSettings ? '접기' : '설정 변경'}
+                </button>
+              </div>
+              {showSettings && (
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  <div>
+                    <label className="text-[10px] text-gray-500">인원수</label>
+                    <input type="number" value={simTravelers} onChange={(e) => setSimTravelers(Number(e.target.value) || 2)}
+                      className="w-full text-xs p-1.5 border rounded" min="1" max="20" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500">연비 (km/L)</label>
+                    <input type="number" value={fuelEfficiency} onChange={(e) => setFuelEfficiency(Number(e.target.value) || 10)}
+                      className="w-full text-xs p-1.5 border rounded" min="5" max="25" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500">유가 (원/L)</label>
+                    <input type="number" value={fuelPrice} onChange={(e) => setFuelPrice(Number(e.target.value) || 1700)}
+                      className="w-full text-xs p-1.5 border rounded" min="1000" max="3000" step="100" />
+                  </div>
+                </div>
+              )}
+              <div className="text-[10px] text-gray-500">
+                👤 {simTravelers}명 | 🚗 연비 {fuelEfficiency}km/L | ⛽ {fuelPrice.toLocaleString()}원/L
+              </div>
+            </div>
+
+            {/* 국내 자동차 여행 비용 정보 */}
+            {needsCar && (
+              <div className="bg-blue-50 rounded-lg p-2 mb-3">
+                <div className="text-xs font-bold text-blue-700 mb-1">🚗 자동차 여행 비용</div>
+                <div className="text-[10px] text-blue-600">
+                  서울 → {destName}: 왕복 {(distance * 2).toLocaleString()}km | 유류비 {formatCurrency(fuelCost)} + 톨비 {formatCurrency(totalToll)}
+                </div>
+              </div>
+            )}
+
+            {/* 비용 결과 */}
+            <div className="bg-gradient-to-r from-primary-50 to-purple-50 rounded-lg p-3 mb-2">
+              <div className="flex justify-between items-end mb-2">
+                <span className="text-xs text-gray-500">총 예상비용 ({simTravelers}인)</span>
+                <div className="text-right">
+                  <span className="text-lg font-black text-primary-700">{formatCurrency(totalCost)}</span>
+                  <span className="block text-[10px] text-gray-400">${totalUSD.toLocaleString()} USD</span>
+                </div>
+              </div>
+              <span className="text-[10px] text-gray-400">1인 {formatCurrency(perPerson)} (${Math.round(perPerson / usdRate).toLocaleString()})</span>
+            </div>
+
+            {/* 항목별 상세 */}
+            <div className="space-y-1">
+              {[
+                { label: `✈️ 항공 (왕복${flightHours ? `, 편도 ${flightHours % 1 === 0 ? flightHours + '시간' : Math.floor(flightHours) + '시간 ' + Math.round((flightHours % 1) * 60) + '분'}` : ''})`, cost: costs.flight, show: !needsCar },
+                { label: '🚗 자동차 (유류비+톨비)', cost: costs.car, show: needsCar, isCarCost: true },
+                { label: '🏨 숙소', cost: costs.hotel, show: true },
+                { label: '🍽️ 식비', cost: costs.food, show: true },
+                { label: '🎯 활동', cost: costs.activity, show: true },
+                { label: '🚕 현지교통', cost: costs.transport, show: !needsCar && costs.transport > 0 },
+                { label: '🛡️ 보험', cost: costs.insurance, show: costs.insurance > 0 },
+                { label: '📱 유심', cost: costs.sim, show: costs.sim > 0 },
+                { label: '🎁 기타', cost: costs.misc, show: true }
+              ].filter(item => item.show).map((item, i) => (
+                <div key={i} className="flex justify-between text-xs py-1 border-b border-gray-50">
+                  <span className="text-gray-600">{item.label}</span>
+                  <div className="text-right">
+                    <span className="font-medium">{formatCurrency(item.isCarCost ? item.cost : item.cost * simTravelers)}</span>
+                    {!item.isCarCost && <span className="text-[10px] text-gray-400 ml-1">(1인 {formatCurrency(item.cost)})</span>}
+                    {item.isCarCost && <span className="text-[10px] text-gray-400 ml-1">(전체)</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 가격 알림 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-3">
+            <h3 className="text-sm font-bold mb-3">🔍 최저가 검색</h3>
+            <div className="space-y-2">
+              {searchLinks.map(link => (
+                <a key={link.id} href={link.url} target="_blank" rel="noopener noreferrer"
+                  className="block bg-blue-50 border border-blue-200 rounded-lg p-3 hover:bg-blue-100 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-bold text-blue-800">{link.icon} {link.title}</span>
+                      <p className="text-[10px] text-blue-500 mt-0.5">{link.desc}</p>
+                    </div>
+                    <span className="text-xs text-blue-400">검색 →</span>
+                  </div>
+                </a>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 text-center mt-2">실제 예약 사이트에서 현재 가격을 확인하세요</p>
+          </div>
+
+          {/* 구매 연계 링크 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-3">
+            <h3 className="text-sm font-bold mb-3">🛒 바로 예약하기</h3>
+            <div className="space-y-2">
+              {bookingLinks.map((link, i) => (
+                <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
+                  className={`flex items-center gap-3 p-2.5 rounded-lg border hover:shadow-sm transition-all ${colorMap[link.color] || 'bg-gray-50 border-gray-200'}`}>
+                  <span className="text-xl">{link.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold">{link.label}</p>
+                    <p className="text-[10px] opacity-75">{link.desc}</p>
+                  </div>
+                  <span className="text-xs opacity-50">→</span>
+                </a>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[10px] text-gray-400 text-center pb-4">
+            * 예상비용은 AI 추정치이며 실제 가격과 다를 수 있습니다<br/>
+            * 구매 링크 클릭 시 외부 사이트로 이동합니다
+          </p>
+        </div>
+      );
+    }
+
+    // ─── 비상 대처 탭 ─────────────────────────────────────
+    function EmergencyTab({ project }) {
+      const dest = project.destination;
+      const country = dest?.country || '';
+
+      // 국가별 비상 연락처 DB
+      const emergencyDB = {
+        '일본': { police: '110', ambulance: '119', fire: '119', embassy: '03-3452-7611', embassyAddr: '도쿄 미나토구 미나미아자부 1-2-5', currency: 'JPY', emergencyNumber: '03-3452-7611' },
+        '태국': { police: '191', ambulance: '1669', fire: '199', embassy: '02-247-7537', embassyAddr: '방콕 수쿤빗 23', currency: 'THB', emergencyNumber: '02-247-7537' },
+        '베트남': { police: '113', ambulance: '115', fire: '114', embassy: '024-3831-5110', embassyAddr: '하노이 바딘군', currency: 'VND', emergencyNumber: '024-3831-5110' },
+        '프랑스': { police: '17', ambulance: '15', fire: '18', embassy: '01-4753-0101', embassyAddr: '파리 125 rue de Grenelle', currency: 'EUR', emergencyNumber: '01-4753-0101' },
+        '인도네시아': { police: '110', ambulance: '118', fire: '113', embassy: '021-2967-2555', embassyAddr: '자카르타 Jl. Jend. Gatot Subroto', currency: 'IDR', emergencyNumber: '021-2967-2555' },
+        '싱가포르': { police: '999', ambulance: '995', fire: '995', embassy: '6256-1188', embassyAddr: '싱가포르 47 Scotts Road', currency: 'SGD', emergencyNumber: '6256-1188' },
+        '미국': { police: '911', ambulance: '911', fire: '911', embassy: '202-939-5600', embassyAddr: '워싱턴 DC 2450 Massachusetts Ave', currency: 'USD', emergencyNumber: '202-939-5600' },
+        '튀르키예': { police: '155', ambulance: '112', fire: '110', embassy: '0312-468-4823', embassyAddr: '앙카라 Resit Galip Cad. No.70', currency: 'TRY', emergencyNumber: '0312-468-4823' },
+        '그리스': { police: '100', ambulance: '166', fire: '199', embassy: '210-698-4080', embassyAddr: '아테네 Eratosthenous 1', currency: 'EUR', emergencyNumber: '210-698-4080' },
+        '한국': { police: '112', ambulance: '119', fire: '119', embassy: '-', embassyAddr: '-', currency: 'KRW', emergencyNumber: '112' }
+      };
+
+      const info = emergencyDB[country] || { police: '현지 확인 필요', ambulance: '현지 확인 필요', fire: '현지 확인 필요', embassy: '외교부 +82-2-2100-2114', embassyAddr: '출국 전 확인', currency: 'USD' };
+
+      const sections = [
+        {
+          title: '긴급 전화번호',
+          icon: '📞',
+          items: [
+            { label: `현지 경찰 (${country})`, value: info.police, action: `tel:${info.police}` },
+            { label: '현지 응급의료', value: info.ambulance, action: `tel:${info.ambulance}` },
+            { label: '현지 화재신고', value: info.fire, action: `tel:${info.fire}` },
+            { label: '영사콜센터 (24시간)', value: '+82-2-3210-0404', action: 'tel:+82-2-3210-0404' },
+            { label: '해외 긴급전화', value: '+82-2-2100-2114', action: 'tel:+82-2-2100-2114' }
+          ]
+        },
+        {
+          title: '대한민국 대사관/영사관',
+          icon: '🏛️',
+          items: [
+            { label: '대사관 전화', value: info.embassy, action: `tel:${info.embassy}` },
+            { label: '주소', value: info.embassyAddr },
+            { label: '외교부 해외안전여행', value: 'www.0404.go.kr', action: 'https://www.0404.go.kr' }
+          ]
+        },
+        {
+          title: '의료 응급상황',
+          icon: '🏥',
+          items: [
+            { label: '현지 구급차', value: info.ambulance, action: `tel:${info.ambulance}` },
+            { label: '여행자보험 긴급연락', value: '보험사 앱 확인', note: '보험증권 번호 저장 필수' },
+            { label: '약국 (필수 상비약)', value: '해열제, 소화제, 지사제, 밴드, 상처연고' }
+          ]
+        },
+        {
+          title: '분실/도난 대처',
+          icon: '🔐',
+          items: [
+            { label: '여권 분실', value: '대사관 연락 → 여행증명서 발급', note: '여권 사본 + 사진 2매 준비' },
+            { label: '카드 분실', value: '카드사 즉시 분실신고' },
+            { label: '삼성카드', value: '1588-8700', action: 'tel:1588-8700' },
+            { label: '신한카드', value: '1544-7000', action: 'tel:1544-7000' },
+            { label: '현금 소진', value: '웨스턴유니온 / 대사관 긴급 대부' }
+          ]
+        },
+        {
+          title: '결제 & 환전 팁',
+          icon: '💳',
+          items: [
+            { label: '카드 결제', value: '해외결제 수수료 1-2% (트래블 카드 추천)' },
+            { label: '트래블 카드', value: '트래블월렛, 하나 트래블로그, 우리 WON', note: '현지 통화 충전 → 수수료 절약' },
+            { label: '현금', value: '소액 현금 준비 (택시, 시장, 팁용)', note: '총 예산의 10-15% 권장' },
+            { label: 'ATM 인출', value: '국제 네트워크 ATM (PLUS/Cirrus)', note: '건당 수수료 확인' }
+          ]
+        }
+      ];
+
+      return (
+        <div className="p-4 space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+            <p className="text-sm font-bold text-red-700">🆘 {dest?.flag} {country} 비상 대처 가이드</p>
+            <p className="text-xs text-red-500 mt-1">출국 전 스크린샷 저장 권장 (오프라인 사용)</p>
+          </div>
+
+          {sections.map((section, si) => (
+            <div key={si} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="bg-gray-50 px-3 py-2 border-b">
+                <span className="text-sm font-bold">{section.icon} {section.title}</span>
+              </div>
+              <div className="divide-y">
+                {section.items.map((item, ii) => (
+                  <div key={ii} className="px-3 py-2.5 flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-500">{item.label}</p>
+                      <p className="text-sm font-medium text-gray-900 truncate">{item.value}</p>
+                      {item.note && <p className="text-[10px] text-orange-500 mt-0.5">{item.note}</p>}
+                    </div>
+                    {item.action && (
+                      <a href={item.action} target={item.action.startsWith('http') ? '_blank' : undefined} rel="noopener noreferrer"
+                        className="ml-2 flex-shrink-0 bg-primary-100 text-primary-700 text-xs px-2.5 py-1.5 rounded-lg font-medium hover:bg-primary-200">
+                        {item.action.startsWith('tel:') ? '📞 전화' : '🔗 열기'}
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+            <p className="text-xs font-bold text-blue-700 mb-1">📋 출국 전 체크리스트</p>
+            <ul className="text-xs text-blue-600 space-y-1">
+              <li>- 여권 사본 (앱 & 클라우드 저장)</li>
+              <li>- 여권 사진 2매 (대사관 여행증명서용)</li>
+              <li>- 보험증권 번호 메모</li>
+              <li>- 카드사 해외분실 전화번호 저장</li>
+              <li>- 이 페이지 스크린샷 저장</li>
+              <li>- 오프라인 지도 다운로드 (Google Maps)</li>
+            </ul>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 공유 탭 ─────────────────────────────────────────
+    function ShareTab({ project, itinerary, state }) {
+      const [shareUrl, setShareUrl] = useState(null);
+      const [sharing, setSharing] = useState(false);
+      const [copied, setCopied] = useState(false);
+      const [shareMethod, setShareMethod] = useState(null);
+
+      const createShareLink = async () => {
+        setSharing(true);
+        const result = await api('/api/share/create', {
+          method: 'POST',
+          body: JSON.stringify({ project, itinerary })
+        });
+        if (result) {
+          const fullUrl = `${window.location.origin}?shared=${result.shareId}`;
+          setShareUrl(fullUrl);
+        }
+        setSharing(false);
+      };
+
+      const copyToClipboard = async (text) => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      };
+
+      const shareVia = (method) => {
+        if (!shareUrl) return;
+        const text = `${project.title} 여행 계획을 공유합니다! ✈️`;
+        const encodedText = encodeURIComponent(text);
+        const encodedUrl = encodeURIComponent(shareUrl);
+
+        const urls = {
+          kakao: `https://sharer.kakao.com/talk/friends/picker/link?url=${encodedUrl}&text=${encodedText}`,
+          line: `https://social-plugins.line.me/lineit/share?url=${encodedUrl}`,
+          sms: `sms:?body=${encodedText}%20${encodedUrl}`,
+          email: `mailto:?subject=${encodedText}&body=${encodedText}%0A%0A${encodedUrl}`
+        };
+
+        if (urls[method]) window.open(urls[method], '_blank');
+      };
+
+      // 텍스트 요약 생성 (메신저 공유용)
+      const generateTextSummary = () => {
+        let text = `✈️ ${project.title}\n`;
+        text += `📅 ${project.dates?.start || 'TBD'} ${getDDay(project.dates?.start)}\n`;
+        text += `👥 ${project.travelers}명\n`;
+        text += `💰 예산: ${formatCurrency(project.budget.total)}\n\n`;
+
+        if (itinerary) {
+          text += `📋 일정 요약:\n`;
+          itinerary.days.forEach(d => {
+            text += `Day${d.dayNumber}: ${d.title}\n`;
+            d.slots.slice(0, 3).forEach(s => {
+              text += `  ${s.time} ${s.icon} ${s.title}\n`;
+            });
+            if (d.slots.length > 3) text += `  ... 외 ${d.slots.length - 3}개\n`;
+          });
+        }
+
+        text += `\n📎 상세 보기: ${shareUrl || '(링크 생성 필요)'}`;
+        return text;
+      };
+
+      return (
+        <div className="p-4 space-y-4">
+          {/* 공유 헤더 */}
+          <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-2xl p-4 text-center">
+            <p className="text-3xl mb-2">👨‍👩‍👧‍👦</p>
+            <h3 className="font-bold text-lg">가족/동행자 공유</h3>
+            <p className="text-xs text-blue-200 mt-1">여행 계획을 함께 볼 수 있어요</p>
+          </div>
+
+          {/* 공유 링크 생성 */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h4 className="font-bold text-sm text-gray-900 mb-3">🔗 공유 링크</h4>
+            {!shareUrl ? (
+              <button onClick={createShareLink} disabled={sharing}
+                className="w-full py-3 bg-primary-600 text-white rounded-xl font-medium text-sm hover:bg-primary-700 disabled:opacity-50 transition-all">
+                {sharing ? '⏳ 링크 생성 중...' : '📎 공유 링크 생성하기'}
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input type="text" readOnly value={shareUrl}
+                    className="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 text-gray-700" />
+                  <button onClick={() => copyToClipboard(shareUrl)}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${copied ? 'bg-green-500 text-white' : 'bg-primary-600 text-white hover:bg-primary-700'}`}>
+                    {copied ? '✅ 복사됨' : '📋 복사'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400">링크를 받은 사람은 여행 계획을 볼 수 있어요</p>
+              </div>
+            )}
+          </div>
+
+          {/* 메신저 공유 */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h4 className="font-bold text-sm text-gray-900 mb-3">💬 메신저로 공유</h4>
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { id: 'kakao', icon: '💬', label: '카카오톡', color: 'bg-yellow-400' },
+                { id: 'line', icon: '💚', label: 'LINE', color: 'bg-green-500' },
+                { id: 'sms', icon: '📱', label: '문자', color: 'bg-blue-500' },
+                { id: 'email', icon: '📧', label: '이메일', color: 'bg-gray-600' }
+              ].map(m => (
+                <button key={m.id} onClick={() => {
+                  if (!shareUrl) { createShareLink().then(() => shareVia(m.id)); }
+                  else shareVia(m.id);
+                }}
+                  className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-gray-50 transition-all">
+                  <span className={`w-10 h-10 ${m.color} rounded-full flex items-center justify-center text-white text-lg`}>
+                    {m.icon}
+                  </span>
+                  <span className="text-xs text-gray-600">{m.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 텍스트 요약 복사 */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h4 className="font-bold text-sm text-gray-900 mb-3">📝 텍스트 요약 복사</h4>
+            <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto mb-2">
+              {generateTextSummary()}
+            </div>
+            <button onClick={() => copyToClipboard(generateTextSummary())}
+              className="w-full py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 transition-all">
+              📋 요약 텍스트 복사
+            </button>
+          </div>
+
+          {/* 공유된 멤버 (미래 확장용) */}
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h4 className="font-bold text-sm text-gray-900 mb-3">👥 공유 멤버</h4>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 p-2 bg-primary-50 rounded-lg">
+                <div className="w-8 h-8 bg-primary-200 rounded-full flex items-center justify-center text-xs font-bold text-primary-700">나</div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900">나 (계획자)</p>
+                  <p className="text-xs text-gray-500">모든 권한</p>
+                </div>
+                <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full">관리자</span>
+              </div>
+              <p className="text-xs text-gray-400 text-center mt-2">공유 링크로 초대하면 여기에 표시됩니다</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 렌더링 ──────────────────────────────────────────
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<PinGate><App /></PinGate>);
+
+    // PWA Service Worker 등록
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+  </script>
+</body>
+</html>

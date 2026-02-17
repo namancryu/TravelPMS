@@ -1,0 +1,10 @@
+node_modules/
+*.db
+.env
+test-results/
+/tmp/
+*.log
+.DS_Store
+playwright-report/
+backups/
+docs/
