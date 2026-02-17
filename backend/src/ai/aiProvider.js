@@ -80,15 +80,28 @@ async function callGroq(prompt) {
 /**
  * Gemini API 호출
  */
-async function callGemini(prompt) {
+async function callGemini(prompt, retries = 2) {
   const model = getGeminiModel();
   if (!model) {
     throw new Error('Gemini model not initialized');
   }
 
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  return response.text();
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } catch (err) {
+      const is429 = err.message && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED'));
+      if (is429 && attempt < retries) {
+        const waitSec = 10 * (attempt + 1);
+        console.log(`⏳ Gemini 분당 쿼터 초과, ${waitSec}초 후 재시도 (${attempt + 1}/${retries})...`);
+        await new Promise(r => setTimeout(r, waitSec * 1000));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 /**
