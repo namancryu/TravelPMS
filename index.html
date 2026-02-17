@@ -79,7 +79,7 @@
       aiMode: 'unknown',
       quotaExceeded: false,
       resetTime: null,
-      userSettings: { homeCity: '서울', homeCountry: '대한민국', defaultTravelers: 2, fuelEfficiency: 10, fuelPrice: 1700 }, // 전역 설정
+      userSettings: { homeCity: '서울', homeCountry: '대한민국', defaultTravelers: 2, defaultBudget: 2000000, defaultDeparture: 'ICN', fuelEfficiency: 10, fuelPrice: 1700 }, // 전역 설정
       consulting: { messages: [], sessionId: `session-${Date.now()}`, recommendations: [], state: 'GREETING', context: {} },
       project: null,
       itinerary: null
@@ -101,13 +101,15 @@
 
           // userSettings 기본값 설정
           if (!parsed.userSettings) {
-            parsed.userSettings = { homeCity: '서울', homeCountry: '대한민국', defaultTravelers: 2, fuelEfficiency: 10, fuelPrice: 1700 };
+            parsed.userSettings = { homeCity: '서울', homeCountry: '대한민국', defaultTravelers: 2, defaultBudget: 2000000, defaultDeparture: 'ICN', fuelEfficiency: 10, fuelPrice: 1700 };
           } else {
             // 기존 설정에 새 필드 추가
             parsed.userSettings = {
               ...parsed.userSettings,
               homeCity: parsed.userSettings.homeCity || '서울',
               defaultTravelers: parsed.userSettings.defaultTravelers || 2,
+              defaultBudget: parsed.userSettings.defaultBudget || 2000000,
+              defaultDeparture: parsed.userSettings.defaultDeparture || 'ICN',
               fuelEfficiency: parsed.userSettings.fuelEfficiency || 10,
               fuelPrice: parsed.userSettings.fuelPrice || 1700
             };
@@ -802,13 +804,25 @@
 
     // ─── 설정 모달 컴포넌트 ───────────────────────────────
     function SettingsModal({ isOpen, onClose, state, dispatch }) {
-      const [homeCity, setHomeCity] = useState(state.userSettings?.homeCity || '');
+      const [homeCity, setHomeCity] = useState(state.userSettings?.homeCity || '서울');
       const [homeCountry, setHomeCountry] = useState(state.userSettings?.homeCountry || '대한민국');
+      const [defaultTravelers, setDefaultTravelers] = useState(state.userSettings?.defaultTravelers || 2);
+      const [defaultBudget, setDefaultBudget] = useState(state.userSettings?.defaultBudget || 2000000);
+      const [defaultDeparture, setDefaultDeparture] = useState(state.userSettings?.defaultDeparture || 'ICN');
+      const [fuelEfficiency, setFuelEfficiency] = useState(state.userSettings?.fuelEfficiency || 10);
+      const [fuelPrice, setFuelPrice] = useState(state.userSettings?.fuelPrice || 1700);
+
+      const DEPARTURE_OPTIONS = [
+        { id: 'ICN', name: '인천 (인천공항)' }, { id: 'GMP', name: '서울 (김포공항)' },
+        { id: 'PUS', name: '부산 (김해공항)' }, { id: 'CJU', name: '제주 (제주공항)' },
+        { id: 'TAE', name: '대구 (대구공항)' }, { id: 'KWJ', name: '광주 (광주공항)' },
+        { id: 'CJJ', name: '청주 (청주공항)' }
+      ];
 
       const handleSave = () => {
         dispatch({
           type: 'SET_USER_SETTINGS',
-          payload: { homeCity, homeCountry }
+          payload: { homeCity, homeCountry, defaultTravelers: Number(defaultTravelers), defaultBudget: Number(defaultBudget), defaultDeparture, fuelEfficiency: Number(fuelEfficiency), fuelPrice: Number(fuelPrice) }
         });
         onClose();
       };
@@ -817,54 +831,82 @@
 
       return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-          <div className="bg-white rounded-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900">⚙️ 설정</h2>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">⚙️ 전역 설정</h2>
               <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
             </div>
+            <p className="text-xs text-gray-500 mb-4">여기서 설정한 값이 새 프로젝트의 기본값으로 적용됩니다</p>
 
             <div className="space-y-4">
-              {/* 거주 국가 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">거주 국가</label>
-                <input
-                  type="text"
-                  value={homeCountry}
-                  onChange={(e) => setHomeCountry(e.target.value)}
-                  placeholder="예: 대한민국"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
+              {/* 거주 정보 */}
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">🏠 거주 정보</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">거주 국가</label>
+                  <input type="text" value={homeCountry} onChange={(e) => setHomeCountry(e.target.value)}
+                    placeholder="대한민국" className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">거주 도시</label>
+                  <input type="text" value={homeCity} onChange={(e) => setHomeCity(e.target.value)}
+                    placeholder="서울" className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500" />
+                </div>
               </div>
 
-              {/* 거주 도시 */}
+              {/* 여행 기본값 */}
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wide pt-2">✈️ 여행 기본값</div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">거주 도시</label>
-                <input
-                  type="text"
-                  value={homeCity}
-                  onChange={(e) => setHomeCity(e.target.value)}
-                  placeholder="예: 서울"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  설정하면 여행지 추천 시 제외되고, 국내/해외 여행을 자동으로 구분합니다
-                </p>
+                <label className="block text-xs font-medium text-gray-600 mb-1">기본 출발지</label>
+                <select value={defaultDeparture} onChange={(e) => setDefaultDeparture(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white">
+                  {DEPARTURE_OPTIONS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">기본 인원수</label>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setDefaultTravelers(Math.max(1, defaultTravelers - 1))}
+                      className="w-8 h-8 rounded-lg border border-gray-300 text-gray-600 flex items-center justify-center hover:bg-gray-50">−</button>
+                    <input type="number" min="1" max="99" value={defaultTravelers} onChange={(e) => setDefaultTravelers(Math.max(1, Number(e.target.value)))}
+                      className="w-12 text-center text-sm border border-gray-300 rounded-lg py-1.5" />
+                    <button onClick={() => setDefaultTravelers(Math.min(99, defaultTravelers + 1))}
+                      className="w-8 h-8 rounded-lg border border-gray-300 text-gray-600 flex items-center justify-center hover:bg-gray-50">+</button>
+                    <span className="text-xs text-gray-400">명</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">기본 예산 (1인)</label>
+                  <div className="flex items-center gap-1">
+                    <input type="number" min="0" step="100000" value={defaultBudget} onChange={(e) => setDefaultBudget(Number(e.target.value))}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-1.5" />
+                    <span className="text-xs text-gray-400 whitespace-nowrap">원</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 국내여행 차량 설정 */}
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wide pt-2">🚗 국내여행 차량</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">연비 (km/L)</label>
+                  <input type="number" min="1" step="0.5" value={fuelEfficiency} onChange={(e) => setFuelEfficiency(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">유가 (원/L)</label>
+                  <input type="number" min="0" step="100" value={fuelPrice} onChange={(e) => setFuelPrice(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500" />
+                </div>
               </div>
             </div>
 
             <div className="flex gap-3 mt-6">
-              <button
-                onClick={onClose}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                취소
-              </button>
-              <button
-                onClick={handleSave}
-                className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-              >
-                저장
-              </button>
+              <button onClick={onClose}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">취소</button>
+              <button onClick={handleSave}
+                className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">저장</button>
             </div>
           </div>
         </div>
@@ -893,6 +935,7 @@
     function ConsultingScreen({ state, dispatch, collabUsers, collabMessages, sendCollabMessage, nickname }) {
       const [input, setInput] = useState('');
       const [loading, setLoading] = useState(false);
+      const [showSettings, setShowSettings] = useState(false);
       const messagesEndRef = useRef(null);
       const inputRef = useRef(null);
       const isInitializedRef = useRef(false);
@@ -1018,8 +1061,15 @@
                   📊
                 </button>
               )}
+              <button onClick={() => setShowSettings(true)}
+                className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">
+                ⚙️
+              </button>
             </div>
           </div>
+
+          {/* 설정 모달 */}
+          <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} state={state} dispatch={dispatch} />
 
           {/* 메시지 영역 */}
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -1170,6 +1220,7 @@
     // ═══════════════════════════════════════════════════
     function DashboardScreen({ state, dispatch, collabUsers, collabMessages, sendCollabMessage, nickname }) {
       const [activeTab, setActiveTab] = useState('overview');
+      const [showSettings, setShowSettings] = useState(false);
 
       console.log('📊 DashboardScreen 렌더링:', {
         hasProject: !!state.project,
@@ -1233,6 +1284,8 @@
                   className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">📂</button>
                 <button onClick={() => dispatch({ type: 'GO_TO_SCREEN', payload: STAGES.CONSULTING })}
                   className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">💬</button>
+                <button onClick={() => setShowSettings(true)}
+                  className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">⚙️</button>
                 <button onClick={() => { if(confirm('새 여행을 계획할까요?')) dispatch({ type: 'RESET' }); }}
                   className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">🔄</button>
               </div>
@@ -1245,6 +1298,9 @@
               <span className="text-xs font-bold">{progress}%</span>
             </div>
           </div>
+
+          {/* 설정 모달 */}
+          <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} state={state} dispatch={dispatch} />
 
           {/* 탭 */}
           <div className="flex border-b border-gray-200 bg-white overflow-x-auto scrollbar-none">
@@ -1267,7 +1323,7 @@
 
           {/* 탭 내용 */}
           <div className="flex-1 overflow-y-auto">
-            {activeTab === 'overview' && <OverviewTab project={safeProject} itinerary={itinerary} totalSpent={totalSpent} progress={progress} dispatch={dispatch} />}
+            {activeTab === 'overview' && <OverviewTab project={safeProject} itinerary={itinerary} totalSpent={totalSpent} progress={progress} dispatch={dispatch} state={state} />}
             {activeTab === 'itinerary' && <ItineraryTab itinerary={itinerary} state={state} dispatch={dispatch} />}
             {activeTab === 'simulator' && <SimulatorTab project={safeProject} state={state} dispatch={dispatch} />}
             {activeTab === 'map' && <MapTab itinerary={itinerary} project={safeProject} />}
@@ -1379,7 +1435,7 @@
       { id: 'CJJ', name: '청주 (청주공항)', airport: 'CJJ' }
     ];
 
-    function OverviewTab({ project, itinerary, totalSpent, progress, dispatch }) {
+    function OverviewTab({ project, itinerary, totalSpent, progress, dispatch, state }) {
       const tasks = project.tasks || [];
       const completedTasks = tasks.filter(t => t.status === 'completed').length;
 
@@ -1427,7 +1483,7 @@
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-500 w-14">출발지</span>
                 <select
-                  value={project.departure || 'ICN'}
+                  value={project.departure || state.userSettings?.defaultDeparture || 'ICN'}
                   onChange={e => updateDeparture(e.target.value)}
                   className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
                 >
@@ -1459,32 +1515,52 @@
                 <span className="text-xs text-gray-500 w-14">인원수</span>
                 <div className="flex-1 flex items-center gap-2">
                   <button
-                    onClick={() => updateTravelers((project.travelers || 1) - 1)}
+                    onClick={() => updateTravelers((project.travelers || state.userSettings?.defaultTravelers || 2) - 1)}
                     className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 text-lg flex items-center justify-center hover:bg-gray-50 active:bg-gray-100"
                   >−</button>
                   <input
                     type="number"
                     min="1"
                     max="99"
-                    value={project.travelers || 1}
+                    value={project.travelers || state.userSettings?.defaultTravelers || 2}
                     onChange={e => updateTravelers(e.target.value)}
                     className="w-14 text-center text-sm border border-gray-200 rounded-lg px-2 py-1.5"
                   />
                   <button
-                    onClick={() => updateTravelers((project.travelers || 1) + 1)}
+                    onClick={() => updateTravelers((project.travelers || state.userSettings?.defaultTravelers || 2) + 1)}
                     className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 text-lg flex items-center justify-center hover:bg-gray-50 active:bg-gray-100"
                   >+</button>
                   <span className="text-xs text-gray-400">명</span>
                 </div>
               </div>
-              {nights > 0 && (() => {
-                const fhMap = { '도쿄': 2.5, '오사카': 2, '후쿠오카': 1.5, '삿포로': 3.5, '오키나와': 2.5, '방콕': 5.5, '다낭': 4.5, '호치민': 5.5, '나트랑': 5, '싱가포르': 6.5, '발리': 7, '세부': 4.5, '타이베이': 2.5, '홍콩': 3.5, '괌': 4.5, '사이판': 4.5, '하와이': 9, '파리': 12, '런던': 12, '로마': 11.5, '바르셀로나': 12, '이스탄불': 11, '뉴욕': 14, 'LA': 12, '시드니': 10.5, '제주도': 1 };
-                const fh = fhMap[project.destination?.name];
-                const fhText = fh ? (fh % 1 === 0 ? `${fh}시간` : `${Math.floor(fh)}시간 ${Math.round((fh % 1) * 60)}분`) : null;
+              {(() => {
+                const fhMap = {
+                  '도쿄': 2.5, '오사카': 2, '후쿠오카': 1.5, '삿포로': 3.5, '오키나와': 2.5, '나고야': 2.5, '교토': 2,
+                  '방콕': 5.5, '다낭': 4.5, '호치민': 5.5, '하노이': 4.5, '나트랑': 5, '푸꾸옥': 5.5,
+                  '싱가포르': 6.5, '발리': 7, '자카르타': 7.5, '세부': 4.5, '마닐라': 4, '보라카이': 5,
+                  '크라비': 6, '푸켓': 6, '치앙마이': 5.5, '코사무이': 6,
+                  '쿠알라룸푸르': 6.5, '랑카위': 6.5, '코타키나발루': 5.5,
+                  '타이베이': 2.5, '홍콩': 3.5, '마카오': 4, '상하이': 2, '베이징': 2,
+                  '괌': 4.5, '사이판': 4.5, '하와이': 9, '호놀룰루': 9,
+                  '뉴욕': 14, 'LA': 12, '로스앤젤레스': 12, '샌프란시스코': 11.5, '라스베가스': 12, '시카고': 13, '칸쿤': 17, '밴쿠버': 10.5, '토론토': 13.5,
+                  '파리': 12, '런던': 12, '로마': 11.5, '바르셀로나': 12, '마드리드': 13,
+                  '프라하': 11.5, '빈': 11.5, '취리히': 12, '암스테르담': 11.5, '뮌헨': 11.5,
+                  '이스탄불': 11, '아테네': 12, '리스본': 14, '더블린': 13,
+                  '부다페스트': 12, '헬싱키': 10, '스톡홀름': 11, '베를린': 11.5,
+                  '밀라노': 12, '베네치아': 12, '피렌체': 12, '니스': 12.5,
+                  '두브로브니크': 13, '산토리니': 13, '레이캬비크': 14,
+                  '두바이': 9.5, '몰디브': 10, '카이로': 12, '케이프타운': 18,
+                  '시드니': 10.5, '멜버른': 11, '오클랜드': 11.5, '퀸스타운': 13, '크라이스트처치': 12, '피지': 11,
+                  '제주': 1, '제주도': 1, '부산': 0
+                };
+                const destName = project.destination?.name;
+                const fh = fhMap[destName];
+                const fhText = fh != null ? (fh === 0 ? null : fh % 1 === 0 ? `${fh}시간` : `${Math.floor(fh)}시간 ${Math.round((fh % 1) * 60)}분`) : null;
+                const departure = DEPARTURE_CITIES.find(c => c.id === (project.departure || state.userSettings?.defaultDeparture || 'ICN'))?.name;
                 return (
                   <div className="text-xs text-center text-orange-600 font-medium pt-1">
-                    <div>✈️ {DEPARTURE_CITIES.find(c => c.id === (project.departure || 'ICN'))?.name} → {project.destination?.name} ({nights}박{days}일)</div>
-                    {fhText && <div className="text-[10px] text-gray-400 mt-0.5">편도 비행시간 약 {fhText}</div>}
+                    <div>✈️ {departure} → {destName} {nights > 0 ? `(${nights}박${days}일)` : ''}</div>
+                    {fhText && <div className="text-[10px] text-gray-400 mt-0.5">편도 소요시간 약 {fhText}</div>}
                   </div>
                 );
               })()}
