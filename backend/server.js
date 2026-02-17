@@ -19,9 +19,13 @@ const transactionDAO = require('./src/database/transactionDAO');
 const receiptDAO = require('./src/database/receiptDAO');
 const recommendationDAO = require('./src/database/recommendationDAO');
 const exchangeRateService = require('./src/services/exchangeRateService');
+const weatherService = require('./src/services/weatherService');
+const visaService = require('./src/services/visaService');
+const flightService = require('./src/services/flightService');
 const ocrService = require('./src/services/ocrService');
 const budgetRecommendationService = require('./src/services/budgetRecommendationService');
 const budgetAlertService = require('./src/services/budgetAlertService');
+const { getCityCoordinates, getPointsOfInterest } = require('./src/api/externalAPIs');
 const multer = require('multer');
 const Database = require('better-sqlite3');
 const { DB_PATH } = require('./src/database/init');
@@ -147,9 +151,9 @@ if (enabledProviders.length > 0) {
 
   const providerLabels = {
     'gemini': '🤖 Gemini AI (Flash)',
-    'grok': '🧠 Grok AI (xAI)',
     'groq': '⚡ Groq AI (Llama 3.3 70B)',
-    'together': '🌐 Together AI (Llama 3.1 70B)'
+    'mistral': '🔮 Mistral AI (Small)',
+    'openrouter': '🌐 OpenRouter (Llama 3.3 70B Free)'
   };
 
   console.log(`✅ ${providerLabels[aiMode] || aiMode} 모드로 실행`);
@@ -1399,6 +1403,114 @@ app.get('/api/budget/recommendations/:projectId', (req, res) => {
   }
 });
 
+// ─── 환율 일괄 조회 (프론트엔드용) ─────────────────────
+app.get('/api/exchange-rates', async (req, res) => {
+  try {
+    const result = await exchangeRateService.getAllRatesForKRW();
+    res.json(result);
+  } catch (err) {
+    console.error('❌ 환율 일괄 조회 실패:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── 날씨 API ──────────────────────────────────────────
+app.get('/api/weather', async (req, res) => {
+  try {
+    const { dest, date, days } = req.query;
+    if (!dest) return res.status(400).json({ error: 'dest 파라미터가 필요합니다' });
+
+    const startDate = date || new Date().toISOString().split('T')[0];
+    const numDays = parseInt(days) || 7;
+
+    const result = await weatherService.getWeatherForecast(dest, startDate, numDays);
+    res.json(result);
+  } catch (err) {
+    console.error('❌ 날씨 조회 실패:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── 비자 API ──────────────────────────────────────────
+app.get('/api/visa', (req, res) => {
+  try {
+    const { country } = req.query;
+    if (!country) return res.status(400).json({ error: 'country 파라미터가 필요합니다' });
+
+    const result = visaService.getVisaInfo(country);
+    res.json(result);
+  } catch (err) {
+    console.error('❌ 비자 조회 실패:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── 항공 가격 API ─────────────────────────────────────
+app.get('/api/flight-price', async (req, res) => {
+  try {
+    const { dest, departure, dateFrom, dateTo } = req.query;
+    if (!dest) return res.status(400).json({ error: 'dest 파라미터가 필요합니다' });
+
+    const result = await flightService.getFlightPrice(dest, departure || 'ICN', dateFrom, dateTo);
+    res.json(result);
+  } catch (err) {
+    console.error('❌ 항공 가격 조회 실패:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/flight-prices - 전체 항공 가격표
+app.get('/api/flight-prices', (req, res) => {
+  try {
+    const prices = flightService.getAllFlightPrices();
+    res.json({ prices, provider: 'fallback', timestamp: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── 좌표 조회 API (OpenTripMap 또는 내장 DB) ──────────
+app.get('/api/destination/coords', async (req, res) => {
+  try {
+    const { name, country } = req.query;
+    if (!name) return res.status(400).json({ error: 'name 파라미터가 필요합니다' });
+
+    // 1차: weatherService의 내장 좌표 DB
+    const builtinCoords = weatherService.getCityCoords(name);
+    if (builtinCoords) {
+      return res.json({ ...builtinCoords, name, source: 'builtin' });
+    }
+
+    // 2차: OpenTripMap API
+    const coords = await getCityCoordinates(name, country || '');
+    if (coords) {
+      return res.json({ ...coords, source: 'opentripmap' });
+    }
+
+    res.status(404).json({ error: '좌표를 찾을 수 없습니다' });
+  } catch (err) {
+    console.error('❌ 좌표 조회 실패:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POI 조회 API ──────────────────────────────────────
+app.get('/api/destination/poi', async (req, res) => {
+  try {
+    const { lat, lon, radius, limit } = req.query;
+    if (!lat || !lon) return res.status(400).json({ error: 'lat, lon 파라미터가 필요합니다' });
+
+    const poi = await getPointsOfInterest(
+      parseFloat(lat), parseFloat(lon),
+      parseInt(radius) || 5000, parseInt(limit) || 10
+    );
+    res.json({ poi: poi || [], count: poi?.length || 0 });
+  } catch (err) {
+    console.error('❌ POI 조회 실패:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── 서버 시작 (Socket.io) ────────────────────────────
 const server = http.createServer(app);
 const { Server } = require('socket.io');
@@ -1486,9 +1598,9 @@ server.listen(PORT, '0.0.0.0', () => {
   const localIP = getLocalIP();
   const aiModeLabels = {
     'gemini': '🤖 Gemini AI',
-    'grok': '🧠 Grok AI',
     'groq': '⚡ Groq AI',
-    'together': '🌐 Together AI',
+    'mistral': '🔮 Mistral AI',
+    'openrouter': '🌐 OpenRouter',
     'mock': '📋 Demo Mode'
   };
 

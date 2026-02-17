@@ -340,6 +340,15 @@
           if (isMounted && data) dispatch({ type: 'SET_AI_MODE', payload: data });
         });
 
+        // 실시간 환율 로드
+        api('/api/exchange-rates').then(data => {
+          if (isMounted && data && data.rates) {
+            window.__exchangeRates = data.rates;
+            window.__exchangeRateProvider = data.provider;
+            console.log('💰 실시간 환율 로드 완료:', data.provider);
+          }
+        });
+
         // 공유 링크로 접속한 경우
         const params = new URLSearchParams(window.location.search);
         const sharedId = params.get('shared');
@@ -1106,8 +1115,8 @@
       const count = travelerCount || 2;
       const isPackage = travelType === 'package';
 
-      // 환율 자동 적용: estimatedCost가 너무 작으면 외화 금액일 가능성 높음
-      const exchangeRates = { EUR: 1450, USD: 1350, GBP: 1700, AUD: 900, CNY: 190 };
+      // 환율 자동 적용: 실시간 환율 (백엔드에서 로드) 또는 fallback
+      const exchangeRates = window.__exchangeRates || { EUR: 1450, USD: 1350, GBP: 1700, AUD: 900, CNY: 190 };
       let rawCost = isPackage ? (rec.packageCost || Math.round(rec.estimatedCost * 0.8)) : rec.estimatedCost;
 
       // 10만원 미만이고 currency가 외화면 환율 적용
@@ -1273,6 +1282,93 @@
     }
 
     // ─── 조견표 탭 ───────────────────────────────────────
+    // ─── 날씨 위젯 컴포넌트 ─────────────────────────────
+    function WeatherWidget({ destName, startDate }) {
+      const [weather, setWeather] = useState(null);
+      const [loading, setLoading] = useState(false);
+
+      useEffect(() => {
+        if (!destName) return;
+        setLoading(true);
+        const date = startDate || new Date().toISOString().split('T')[0];
+        api(`/api/weather?dest=${encodeURIComponent(destName)}&date=${date}&days=7`).then(data => {
+          if (data && data.forecast) setWeather(data);
+          setLoading(false);
+        }).catch(() => setLoading(false));
+      }, [destName, startDate]);
+
+      if (!destName || loading) return loading ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+          <p className="text-xs text-blue-500">🌤️ 날씨 정보 로딩 중...</p>
+        </div>
+      ) : null;
+
+      if (!weather || weather.error || !weather.forecast?.length) return null;
+
+      return (
+        <div className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-blue-800">🌤️ {destName} 날씨</h3>
+            <span className="text-[10px] text-blue-400">
+              {weather.isHistorical ? '작년 기후 참고' : '실시간 예보'}
+            </span>
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-1">
+            {weather.forecast.slice(0, 7).map((day, i) => (
+              <div key={i} className="flex-shrink-0 text-center bg-white rounded-lg px-2 py-1.5 min-w-[52px] border border-blue-100">
+                <p className="text-[10px] text-gray-500">{new Date(day.date).toLocaleDateString('ko', {month:'numeric',day:'numeric'})}</p>
+                <p className="text-lg leading-tight">{day.icon}</p>
+                <p className="text-[10px] font-bold text-gray-700">{day.tempMax}°</p>
+                <p className="text-[10px] text-gray-400">{day.tempMin}°</p>
+                {day.precipProbability != null && day.precipProbability > 30 && (
+                  <p className="text-[10px] text-blue-500">💧{day.precipProbability}%</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 비자 정보 위젯 ──────────────────────────────────
+    function VisaWidget({ country }) {
+      const [visa, setVisa] = useState(null);
+
+      useEffect(() => {
+        if (!country || country === '한국' || country === '대한민국') return;
+        api(`/api/visa?country=${encodeURIComponent(country)}`).then(data => {
+          if (data) setVisa(data);
+        });
+      }, [country]);
+
+      if (!visa || !country || country === '한국' || country === '대한민국') return null;
+
+      const isRequired = visa.required;
+      const bgColor = isRequired ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200';
+      const textColor = isRequired ? 'text-amber-700' : 'text-green-700';
+      const badgeColor = isRequired ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800';
+
+      return (
+        <div className={`${bgColor} border rounded-xl p-3`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">🛂</span>
+              <span className={`text-sm font-bold ${textColor}`}>{country} 비자</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${badgeColor}`}>
+                {visa.type}
+              </span>
+            </div>
+            <span className={`text-xs ${textColor}`}>{visa.duration}</span>
+          </div>
+          <p className="text-[10px] text-gray-500 mt-1">{visa.note}</p>
+          {visa.link && (
+            <a href={visa.link} target="_blank" rel="noopener noreferrer"
+              className="text-[10px] text-blue-600 underline mt-1 inline-block">신청 바로가기 →</a>
+          )}
+        </div>
+      );
+    }
+
     // 출발지 목록
     const DEPARTURE_CITIES = [
       { id: 'ICN', name: '인천 (인천공항)', airport: 'ICN' },
@@ -1395,6 +1491,12 @@
               })()}
             </div>
           </div>
+
+          {/* 날씨 위젯 */}
+          <WeatherWidget destName={project.destination?.name} startDate={project.dates?.start} />
+
+          {/* 비자 정보 */}
+          <VisaWidget country={project.destination?.country} />
 
           {/* 핵심 요약 카드 */}
           <div className="bg-gradient-to-br from-primary-500 to-purple-600 text-white rounded-2xl p-4">
@@ -2574,7 +2676,7 @@
       };
       const perPerson = Object.values(costs).reduce((a, b) => a + b, 0);
       const totalCost = perPerson * simTravelers;
-      const usdRate = 1300;
+      const usdRate = (window.__exchangeRates && window.__exchangeRates.USD) || 1300;
       const totalUSD = Math.round(totalCost / usdRate);
 
       // 목적지 기반 구매 링크 생성 (destName, country는 위에서 이미 선언됨)
@@ -2788,18 +2890,50 @@
       const dest = project.destination;
       const country = dest?.country || '';
 
-      // 국가별 비상 연락처 DB
+      // 국가별 비상 연락처 DB (확장: 40개국+)
       const emergencyDB = {
-        '일본': { police: '110', ambulance: '119', fire: '119', embassy: '03-3452-7611', embassyAddr: '도쿄 미나토구 미나미아자부 1-2-5', currency: 'JPY', emergencyNumber: '03-3452-7611' },
-        '태국': { police: '191', ambulance: '1669', fire: '199', embassy: '02-247-7537', embassyAddr: '방콕 수쿤빗 23', currency: 'THB', emergencyNumber: '02-247-7537' },
-        '베트남': { police: '113', ambulance: '115', fire: '114', embassy: '024-3831-5110', embassyAddr: '하노이 바딘군', currency: 'VND', emergencyNumber: '024-3831-5110' },
-        '프랑스': { police: '17', ambulance: '15', fire: '18', embassy: '01-4753-0101', embassyAddr: '파리 125 rue de Grenelle', currency: 'EUR', emergencyNumber: '01-4753-0101' },
-        '인도네시아': { police: '110', ambulance: '118', fire: '113', embassy: '021-2967-2555', embassyAddr: '자카르타 Jl. Jend. Gatot Subroto', currency: 'IDR', emergencyNumber: '021-2967-2555' },
-        '싱가포르': { police: '999', ambulance: '995', fire: '995', embassy: '6256-1188', embassyAddr: '싱가포르 47 Scotts Road', currency: 'SGD', emergencyNumber: '6256-1188' },
-        '미국': { police: '911', ambulance: '911', fire: '911', embassy: '202-939-5600', embassyAddr: '워싱턴 DC 2450 Massachusetts Ave', currency: 'USD', emergencyNumber: '202-939-5600' },
-        '튀르키예': { police: '155', ambulance: '112', fire: '110', embassy: '0312-468-4823', embassyAddr: '앙카라 Resit Galip Cad. No.70', currency: 'TRY', emergencyNumber: '0312-468-4823' },
-        '그리스': { police: '100', ambulance: '166', fire: '199', embassy: '210-698-4080', embassyAddr: '아테네 Eratosthenous 1', currency: 'EUR', emergencyNumber: '210-698-4080' },
-        '한국': { police: '112', ambulance: '119', fire: '119', embassy: '-', embassyAddr: '-', currency: 'KRW', emergencyNumber: '112' }
+        '일본': { police: '110', ambulance: '119', fire: '119', embassy: '03-3452-7611', embassyAddr: '도쿄 미나토구 미나미아자부 1-2-5', currency: 'JPY' },
+        '태국': { police: '191', ambulance: '1669', fire: '199', embassy: '02-247-7537', embassyAddr: '방콕 수쿤빗 23', currency: 'THB' },
+        '베트남': { police: '113', ambulance: '115', fire: '114', embassy: '024-3831-5110', embassyAddr: '하노이 바딘군', currency: 'VND' },
+        '프랑스': { police: '17', ambulance: '15', fire: '18', embassy: '01-4753-0101', embassyAddr: '파리 125 rue de Grenelle', currency: 'EUR' },
+        '인도네시아': { police: '110', ambulance: '118', fire: '113', embassy: '021-2967-2555', embassyAddr: '자카르타 Jl. Jend. Gatot Subroto', currency: 'IDR' },
+        '싱가포르': { police: '999', ambulance: '995', fire: '995', embassy: '6256-1188', embassyAddr: '싱가포르 47 Scotts Road', currency: 'SGD' },
+        '미국': { police: '911', ambulance: '911', fire: '911', embassy: '202-939-5600', embassyAddr: '워싱턴 DC 2450 Massachusetts Ave', currency: 'USD' },
+        '튀르키예': { police: '155', ambulance: '112', fire: '110', embassy: '0312-468-4823', embassyAddr: '앙카라 Resit Galip Cad. No.70', currency: 'TRY' },
+        '그리스': { police: '100', ambulance: '166', fire: '199', embassy: '210-698-4080', embassyAddr: '아테네 Eratosthenous 1', currency: 'EUR' },
+        '중국': { police: '110', ambulance: '120', fire: '119', embassy: '010-6532-0290', embassyAddr: '베이징 차오양구', currency: 'CNY' },
+        '대만': { police: '110', ambulance: '119', fire: '119', embassy: '02-2758-8320', embassyAddr: '타이베이 기륭로 333호', currency: 'TWD' },
+        '홍콩': { police: '999', ambulance: '999', fire: '999', embassy: '2529-4141', embassyAddr: '홍콩 Central 5/F', currency: 'HKD' },
+        '필리핀': { police: '117', ambulance: '911', fire: '911', embassy: '02-8856-9210', embassyAddr: '마닐라 마카티', currency: 'PHP' },
+        '말레이시아': { police: '999', ambulance: '999', fire: '994', embassy: '03-4251-2336', embassyAddr: '쿠알라룸푸르 Jalan Nipah', currency: 'MYR' },
+        '캄보디아': { police: '117', ambulance: '119', fire: '118', embassy: '023-211-163', embassyAddr: '프놈펜 Blvd. Sothearos', currency: 'KHR' },
+        '인도': { police: '100', ambulance: '102', fire: '101', embassy: '011-2688-4257', embassyAddr: '뉴델리 Chandragupta Marg', currency: 'INR' },
+        '호주': { police: '000', ambulance: '000', fire: '000', embassy: '02-6270-4100', embassyAddr: '캔버라 113 Empire Circuit', currency: 'AUD' },
+        '뉴질랜드': { police: '111', ambulance: '111', fire: '111', embassy: '04-473-9073', embassyAddr: '웰링턴 11th Floor ASB Bank Tower', currency: 'NZD' },
+        '영국': { police: '999', ambulance: '999', fire: '999', embassy: '020-7227-5500', embassyAddr: '런던 60 Buckingham Gate', currency: 'GBP' },
+        '독일': { police: '110', ambulance: '112', fire: '112', embassy: '030-260-650', embassyAddr: '베를린 Stülerstraße 8-10', currency: 'EUR' },
+        '이탈리아': { police: '113', ambulance: '118', fire: '115', embassy: '06-802-461', embassyAddr: '로마 Via Barnaba Oriani 30', currency: 'EUR' },
+        '스페인': { police: '091', ambulance: '112', fire: '080', embassy: '91-353-2000', embassyAddr: '마드리드 Calle de González Amigó 15', currency: 'EUR' },
+        '스위스': { police: '117', ambulance: '144', fire: '118', embassy: '031-356-2444', embassyAddr: '베른 Kalcheggweg 38', currency: 'CHF' },
+        '네덜란드': { police: '112', ambulance: '112', fire: '112', embassy: '070-740-0200', embassyAddr: '헤이그 Verlengde Tolweg 8', currency: 'EUR' },
+        '체코': { police: '158', ambulance: '155', fire: '150', embassy: '234-090-411', embassyAddr: '프라하 Slavíčkova 5', currency: 'CZK' },
+        '캐나다': { police: '911', ambulance: '911', fire: '911', embassy: '613-244-5010', embassyAddr: '오타와 150 Boteler St', currency: 'CAD' },
+        '멕시코': { police: '911', ambulance: '911', fire: '911', embassy: '55-5202-9866', embassyAddr: '멕시코시티 Lope de Armendariz 110', currency: 'MXN' },
+        '브라질': { police: '190', ambulance: '192', fire: '193', embassy: '61-3321-2500', embassyAddr: '브라질리아 SEN 801', currency: 'BRL' },
+        '러시아': { police: '102', ambulance: '103', fire: '101', embassy: '495-783-2727', embassyAddr: '모스크바 Plyushchikha ul. 56', currency: 'RUB' },
+        '아랍에미리트': { police: '999', ambulance: '998', fire: '997', embassy: '02-693-3556', embassyAddr: '아부다비', currency: 'AED' },
+        '이집트': { police: '122', ambulance: '123', fire: '180', embassy: '02-3761-1234', embassyAddr: '카이로 Dokki', currency: 'EGP' },
+        '몽골': { police: '102', ambulance: '103', fire: '101', embassy: '011-321-548', embassyAddr: '울란바토르', currency: 'MNT' },
+        '라오스': { police: '191', ambulance: '195', fire: '190', embassy: '021-352-031', embassyAddr: '비엔티안', currency: 'LAK' },
+        '미얀마': { police: '199', ambulance: '192', fire: '191', embassy: '01-527-142', embassyAddr: '양곤', currency: 'MMK' },
+        '네팔': { police: '100', ambulance: '102', fire: '101', embassy: '01-427-0172', embassyAddr: '카트만두', currency: 'NPR' },
+        '모로코': { police: '190', ambulance: '150', fire: '150', embassy: '0537-751-767', embassyAddr: '라바트', currency: 'MAD' },
+        '남아프리카공화국': { police: '10111', ambulance: '10177', fire: '10177', embassy: '012-460-2508', embassyAddr: '프리토리아', currency: 'ZAR' },
+        '크로아티아': { police: '192', ambulance: '194', fire: '193', embassy: '01-481-8282', embassyAddr: '자그레브', currency: 'EUR' },
+        '헝가리': { police: '107', ambulance: '104', fire: '105', embassy: '1-462-3080', embassyAddr: '부다페스트', currency: 'HUF' },
+        '폴란드': { police: '997', ambulance: '999', fire: '998', embassy: '22-559-2900', embassyAddr: '바르샤바', currency: 'PLN' },
+        '한국': { police: '112', ambulance: '119', fire: '119', embassy: '-', embassyAddr: '-', currency: 'KRW' },
+        '대한민국': { police: '112', ambulance: '119', fire: '119', embassy: '-', embassyAddr: '-', currency: 'KRW' }
       };
 
       const info = emergencyDB[country] || { police: '현지 확인 필요', ambulance: '현지 확인 필요', fire: '현지 확인 필요', embassy: '외교부 +82-2-2100-2114', embassyAddr: '출국 전 확인', currency: 'USD' };
@@ -2863,6 +2997,9 @@
             <p className="text-sm font-bold text-red-700">🆘 {dest?.flag} {country} 비상 대처 가이드</p>
             <p className="text-xs text-red-500 mt-1">출국 전 스크린샷 저장 권장 (오프라인 사용)</p>
           </div>
+
+          {/* 비자 정보 */}
+          <VisaWidget country={country} />
 
           {sections.map((section, si) => (
             <div key={si} className="bg-white rounded-xl border border-gray-200 overflow-hidden">

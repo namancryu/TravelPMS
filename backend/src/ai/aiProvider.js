@@ -1,11 +1,14 @@
 /**
  * Multi AI Provider Abstraction Layer
- * Gemini, Grok(xAI), Groq, Together.ai 통합
+ * Gemini, Groq, Mistral, OpenRouter 통합
+ * 폴백 순서: Gemini → Groq → Mistral → OpenRouter → Mock
  */
 
 require('dotenv').config();
 
-// AI Provider 설정 (우선순위: Gemini > Grok > Groq > Together)
+const SYSTEM_PROMPT = '당신은 여행 전문가입니다. 반드시 100% 순수 한글로만 답변하세요. 중국어(漢字), 일본어, 영어는 절대 사용하지 마세요. 친근하게 답변하세요.';
+
+// AI Provider 설정 (우선순위: Gemini > Groq > Mistral > OpenRouter)
 const AI_PROVIDERS = [
   {
     name: 'gemini',
@@ -14,25 +17,25 @@ const AI_PROVIDERS = [
     enabled: () => !!process.env.GEMINI_API_KEY
   },
   {
-    name: 'grok',
-    model: 'grok-3-mini',
-    endpoint: 'https://api.x.ai/v1/chat/completions',
-    priority: 2,
-    enabled: () => !!process.env.XAI_API_KEY
-  },
-  {
     name: 'groq',
     model: 'llama-3.3-70b-versatile',
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-    priority: 3,
+    priority: 2,
     enabled: () => !!process.env.GROQ_API_KEY
   },
   {
-    name: 'together',
-    model: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
-    endpoint: 'https://api.together.xyz/v1/chat/completions',
+    name: 'mistral',
+    model: 'mistral-small-latest',
+    endpoint: 'https://api.mistral.ai/v1/chat/completions',
+    priority: 3,
+    enabled: () => !!process.env.MISTRAL_API_KEY
+  },
+  {
+    name: 'openrouter',
+    model: 'meta-llama/llama-3.3-70b-instruct:free',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
     priority: 4,
-    enabled: () => !!process.env.TOGETHER_API_KEY
+    enabled: () => !!process.env.OPENROUTER_API_KEY
   }
 ];
 
@@ -81,49 +84,36 @@ async function callGemini(prompt, retries = 2) {
 }
 
 /**
- * Grok (xAI) API 호출 (OpenAI 호환 형식)
+ * OpenAI 호환 API 호출 (Groq, Mistral, OpenRouter 공통)
  */
-async function callGrok(prompt) {
-  const response = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'grok-3-mini',
-      messages: [
-        { role: 'system', content: '당신은 여행 전문가입니다. 반드시 100% 순수 한글로만 답변하세요. 중국어(漢字), 일본어, 영어는 절대 사용하지 마세요. 친근하게 답변하세요.' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 2000
-    })
-  });
+async function callOpenAICompatible(provider, prompt) {
+  const config = AI_PROVIDERS.find(p => p.name === provider);
+  if (!config) throw new Error(`Unknown provider: ${provider}`);
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Grok API error: ${response.status} - ${error}`);
+  const apiKeyMap = {
+    'groq': process.env.GROQ_API_KEY,
+    'mistral': process.env.MISTRAL_API_KEY,
+    'openrouter': process.env.OPENROUTER_API_KEY
+  };
+
+  const headers = {
+    'Authorization': `Bearer ${apiKeyMap[provider]}`,
+    'Content-Type': 'application/json'
+  };
+
+  // OpenRouter는 추가 헤더 필요
+  if (provider === 'openrouter') {
+    headers['HTTP-Referer'] = 'https://travel-pms.onrender.com';
+    headers['X-Title'] = 'TravelPMS';
   }
 
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
-/**
- * Groq API 호출 (OpenAI 호환 형식)
- */
-async function callGroq(prompt) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const response = await fetch(config.endpoint, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: config.model,
       messages: [
-        { role: 'system', content: '당신은 여행 전문가입니다. 반드시 100% 순수 한글로만 답변하세요. 중국어(漢字), 일본어, 영어는 절대 사용하지 마세요. 친근하게 답변하세요.' },
+        { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: prompt }
       ],
       temperature: 0.7,
@@ -133,37 +123,7 @@ async function callGroq(prompt) {
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Groq API error: ${response.status} - ${error}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
-/**
- * Together.ai API 호출 (OpenAI 호환 형식)
- */
-async function callTogether(prompt) {
-  const response = await fetch('https://api.together.xyz/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.TOGETHER_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
-      messages: [
-        { role: 'system', content: '당신은 여행 전문가입니다. 반드시 100% 순수 한글로만 답변하세요. 중국어(漢字), 일본어, 영어는 절대 사용하지 마세요. 친근하게 답변하세요.' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 2000
-    })
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Together API error: ${response.status} - ${error}`);
+    throw new Error(`${provider} API error: ${response.status} - ${error}`);
   }
 
   const data = await response.json();
@@ -172,7 +132,7 @@ async function callTogether(prompt) {
 
 /**
  * 통합 AI 호출 함수 (우선순위 기반 폴백)
- * Gemini → Grok → Groq → Together → Mock
+ * Gemini → Groq → Mistral → OpenRouter → Mock
  */
 async function generateAIResponse(prompt) {
   const enabledProviders = AI_PROVIDERS
@@ -189,21 +149,10 @@ async function generateAIResponse(prompt) {
       console.log(`🤖 Trying ${provider.name} (${provider.model})...`);
 
       let response;
-      switch (provider.name) {
-        case 'gemini':
-          response = await callGemini(prompt);
-          break;
-        case 'grok':
-          response = await callGrok(prompt);
-          break;
-        case 'groq':
-          response = await callGroq(prompt);
-          break;
-        case 'together':
-          response = await callTogether(prompt);
-          break;
-        default:
-          continue;
+      if (provider.name === 'gemini') {
+        response = await callGemini(prompt);
+      } else {
+        response = await callOpenAICompatible(provider.name, prompt);
       }
 
       console.log(`✅ ${provider.name} response received`);
