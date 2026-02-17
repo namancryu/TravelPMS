@@ -283,15 +283,28 @@ app.post('/api/recommend', async (req, res) => {
 // ─── 일정 생성 ─────────────────────────────────────────
 app.post('/api/itinerary/generate', async (req, res) => {
   try {
-    const { destinationId, duration, travelers, budget, context, startDate } = req.body;
+    const { destinationId, duration, travelers, budget, context, startDate, destinationData } = req.body;
     if (!destinationId) {
       return res.status(400).json({ error: 'destinationId가 필요합니다.' });
     }
 
+    // DB에 없는 목적지일 경우 destinationData에서 context 보강
+    const enrichedContext = { ...context };
+    if (destinationData) {
+      enrichedContext.country = destinationData.country || context?.country;
+      enrichedContext.highlights = destinationData.highlights || context?.highlights;
+      enrichedContext.styles = destinationData.styles || context?.styles;
+    }
+
     let itinerary;
     if (geminiModel) {
-      itinerary = await generateWithAI(geminiModel, destinationId, duration, travelers, budget, context, startDate);
+      itinerary = await generateWithAI(geminiModel, destinationId, duration, travelers, budget, enrichedContext, startDate);
     } else {
+      itinerary = generateMockItinerary(destinationId, duration, travelers, budget, startDate);
+    }
+
+    // AI 일정도 실패 시 Mock으로 폴백
+    if (!itinerary) {
       itinerary = generateMockItinerary(destinationId, duration, travelers, budget, startDate);
     }
 

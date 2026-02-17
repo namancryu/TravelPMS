@@ -207,9 +207,15 @@ const itineraryTemplates = {
 const defaultDayPatterns = ['arrival', 'culture', 'shopping', 'departure'];
 
 function generateMockItinerary(destination, duration, travelers, budget, startDateStr) {
-  const dest = typeof destination === 'string'
+  let dest = typeof destination === 'string'
     ? getDestinationById(destination) || getDestinationByName(destination)
     : destination;
+
+  // DB에 없는 목적지인 경우 기본 정보로 생성
+  if (!dest && typeof destination === 'string') {
+    const name = destination.replace(/^[a-z]+-/, '');
+    dest = { id: destination, name, country: '', flag: '🌍', highlights: [], sampleItinerary: { days: duration || 4 } };
+  }
 
   if (!dest) return null;
 
@@ -412,9 +418,20 @@ function generateGenericSlots(dest, dayIdx, totalDays) {
 }
 
 async function generateWithAI(geminiModel, destination, duration, travelers, budget, context, startDateStr) {
-  const dest = typeof destination === 'string'
+  let dest = typeof destination === 'string'
     ? getDestinationById(destination) || getDestinationByName(destination)
     : destination;
+
+  // DB에 없는 목적지 (AI 추천)인 경우, context에서 정보를 가져오거나 기본값 생성
+  if (!dest && typeof destination === 'string') {
+    dest = {
+      name: destination.replace(/^[a-z]+-/, ''), // 'custom-호놀룰루' → '호놀룰루'
+      country: context?.country || '',
+      highlights: context?.highlights || [],
+      styles: context?.styles || [],
+      sampleItinerary: { days: duration || 4 }
+    };
+  }
 
   if (!dest) return null;
   if (!geminiModel) return generateMockItinerary(destination, duration, travelers, budget, startDateStr);

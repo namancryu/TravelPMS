@@ -980,7 +980,8 @@
               duration: result.destination?.sampleItinerary?.days || 4,
               travelers: result.travelers,
               budget: result.budget?.total,
-              startDate: result.dates?.start
+              startDate: result.dates?.start,
+              destinationData: rec
             })
           });
           if (itinerary) dispatch({ type: 'SET_ITINERARY', payload: itinerary });
@@ -1641,6 +1642,14 @@
 
       // 편도 항공비 계산 (왕복의 절반)
       const destName = state.project?.destination?.name || '';
+      // 도시명 별칭 매칭
+      const itinCityAliases = {
+        '호놀룰루': '하와이', '와이키키': '하와이', '동경': '도쿄',
+        '타이페이': '타이베이', '대만': '타이베이', '사이공': '호치민',
+        '덴파사르': '발리', '로스앤젤레스': 'LA', '엘에이': 'LA',
+        '비엔나': '빈', '프라하': '프라하', '크라비': '크라비', '푸켓': '푸켓'
+      };
+      const itinDestName = itinCityAliases[destName] || destName;
       const flightRoundtripMap = {
         '도쿄': 500000, '오사카': 500000, '후쿠오카': 400000, '삿포로': 550000, '오키나와': 500000,
         '방콕': 600000, '다낭': 500000, '호치민': 550000, '나트랑': 550000,
@@ -1650,9 +1659,11 @@
         '파리': 1300000, '런던': 1300000, '로마': 1200000, '바르셀로나': 1200000,
         '이스탄불': 1000000,
         '뉴욕': 1500000, 'LA': 1300000, '시드니': 1100000,
+        '프라하': 1100000, '빈': 1200000, '취리히': 1400000, '암스테르담': 1200000,
+        '크라비': 650000, '푸켓': 650000, '칸쿤': 1600000, '몰디브': 1500000,
         '제주도': 200000
       };
-      const oneWayFlight = Math.round((flightRoundtripMap[destName] || 0) / 2);
+      const oneWayFlight = Math.round((flightRoundtripMap[itinDestName] || 0) / 2);
 
       // Day별 총 비용 계산 (항공비 포함)
       const getDayCost = (d) => {
@@ -2627,6 +2638,44 @@
       const fuelCost = Math.round((distance * 2) / fuelEfficiency * fuelPrice); // 왕복 유류비
       const totalToll = tollFee * 2; // 왕복 톨비
 
+      // 도시명 별칭 → 표준명 매핑 (AI가 다른 이름으로 생성할 수 있음)
+      const cityAliases = {
+        '호놀룰루': '하와이', '와이키키': '하와이', 'Honolulu': '하와이', 'Hawaii': '하와이',
+        '도쿄': '도쿄', '동경': '도쿄', 'Tokyo': '도쿄',
+        '오사카': '오사카', 'Osaka': '오사카',
+        '방콕': '방콕', 'Bangkok': '방콕',
+        '싱가포르': '싱가포르', 'Singapore': '싱가포르',
+        '발리': '발리', '덴파사르': '발리', 'Bali': '발리',
+        '세부': '세부', 'Cebu': '세부',
+        '타이베이': '타이베이', '타이페이': '타이베이', '대만': '타이베이', 'Taipei': '타이베이',
+        '홍콩': '홍콩', 'Hong Kong': '홍콩',
+        '다낭': '다낭', 'Da Nang': '다낭',
+        '호치민': '호치민', '사이공': '호치민', 'Ho Chi Minh': '호치민',
+        '나트랑': '나트랑', 'Nha Trang': '나트랑',
+        '파리': '파리', 'Paris': '파리',
+        '런던': '런던', 'London': '런던',
+        '로마': '로마', 'Rome': '로마',
+        '바르셀로나': '바르셀로나', 'Barcelona': '바르셀로나',
+        '이스탄불': '이스탄불', 'Istanbul': '이스탄불',
+        '뉴욕': '뉴욕', 'New York': '뉴욕',
+        '로스앤젤레스': 'LA', '엘에이': 'LA', 'Los Angeles': 'LA',
+        '시드니': '시드니', 'Sydney': '시드니',
+        '괌': '괌', 'Guam': '괌',
+        '사이판': '사이판', 'Saipan': '사이판',
+        '후쿠오카': '후쿠오카', 'Fukuoka': '후쿠오카',
+        '삿포로': '삿포로', 'Sapporo': '삿포로',
+        '오키나와': '오키나와', 'Okinawa': '오키나와',
+        '프라하': '프라하', 'Prague': '프라하',
+        '빈': '빈', '비엔나': '빈', 'Vienna': '빈',
+        '취리히': '취리히', 'Zurich': '취리히',
+        '암스테르담': '암스테르담', 'Amsterdam': '암스테르담',
+        '뮌헨': '뮌헨', 'Munich': '뮌헨',
+        '방콕': '방콕', '크라비': '크라비', '푸켓': '푸켓',
+        '칸쿤': '칸쿤', 'Cancun': '칸쿤',
+        '몰디브': '몰디브', 'Maldives': '몰디브'
+      };
+      const matchedName = cityAliases[destName] || destName;
+
       // 항공료: 1인 왕복(Round-trip) 기준, 성수기(7~8월) 평균 시세 참고
       const flightPriceMap = {
         '도쿄': 500000, '오사카': 500000, '후쿠오카': 400000, '삿포로': 550000, '오키나와': 500000,
@@ -2638,6 +2687,9 @@
         '이스탄불': 1000000,
         '뉴욕': 1500000, 'LA': 1300000,
         '시드니': 1100000,
+        '프라하': 1100000, '빈': 1200000, '취리히': 1400000, '암스테르담': 1200000, '뮌헨': 1200000,
+        '크라비': 650000, '푸켓': 650000,
+        '칸쿤': 1600000, '몰디브': 1500000,
         '제주도': 200000, '부산': 0
       };
       // 편도 비행시간 (시간 단위, 직항 기준)
@@ -2651,18 +2703,22 @@
         '이스탄불': 11,
         '뉴욕': 14, 'LA': 12,
         '시드니': 10.5,
+        '프라하': 12, '빈': 12, '취리히': 12.5, '암스테르담': 11.5, '뮌헨': 11.5,
+        '크라비': 6, '푸켓': 6,
+        '칸쿤': 17, '몰디브': 10,
         '제주도': 1, '부산': 0
       };
-      const flightHours = flightHoursMap[destName] || null;
+      const flightHours = flightHoursMap[matchedName] || null;
       let flightCost = 0;
       if (!needsCar) {
-        if (flightPriceMap[destName] !== undefined) {
-          flightCost = Math.round(flightPriceMap[destName] * flightMultiplier * typeDiscount);
+        if (flightPriceMap[matchedName] !== undefined) {
+          flightCost = Math.round(flightPriceMap[matchedName] * flightMultiplier * typeDiscount);
         } else if (isJeju) {
           flightCost = Math.round(150000 * flightMultiplier);
         } else {
-          // 가격표에 없는 도시는 baseCost 기반 추정
-          flightCost = Math.round(baseCost * 0.55 * flightMultiplier * typeDiscount);
+          // 가격표에 없는 도시는 baseCost 기반 추정 (최소 항공료 보장)
+          const estimatedFlight = Math.round(baseCost * 0.55 * flightMultiplier * typeDiscount);
+          flightCost = Math.max(estimatedFlight, 400000); // 해외는 최소 40만원
         }
       }
 
