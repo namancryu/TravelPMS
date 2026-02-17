@@ -1,11 +1,25 @@
 const { test, expect } = require('@playwright/test');
 
 const BASE_URL = 'http://localhost:3000';
+const PIN = '3512';
+
+async function loginWithPIN(page) {
+  await page.goto(BASE_URL);
+  await page.waitForLoadState('networkidle');
+  // PIN 입력
+  const pinScreen = page.locator('text=PIN을 입력하세요');
+  if (await pinScreen.isVisible().catch(() => false)) {
+    for (const digit of PIN) {
+      await page.locator(`button:has-text("${digit}")`).first().click();
+      await page.waitForTimeout(200);
+    }
+    await page.waitForTimeout(1500);
+  }
+}
 
 test.describe('TravelPMS UI E2E Tests', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto(BASE_URL);
-    await page.waitForLoadState('networkidle');
+    await loginWithPIN(page);
   });
 
   test('1. 홈페이지 로드 확인', async ({ page }) => {

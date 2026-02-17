@@ -126,7 +126,7 @@ async function getWeatherForecast(destName, startDate, days = 7) {
     console.log(`🌤️ 날씨 조회: ${destName} (${forecast.length}일, ${result.isHistorical ? '기후데이터' : '실시간예보'})`);
     return result;
   } catch (err) {
-    console.error(`날씨 조회 실패 (${destName}):`, err.message);
+    console.error(`날씨 조회 실패 (${destName}):`, err.message, err.cause || '');
     return { error: err.message, destName };
   }
 }

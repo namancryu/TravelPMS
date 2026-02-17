@@ -24,6 +24,18 @@ test('프로젝트 카드 클릭하여 상세 화면 이동', async ({ page }) =
   await loginWithPIN(page);
   await page.waitForTimeout(2000);
 
+  // 닉네임 모달이 뜨면 닫기
+  const nicknameModal = page.locator('text=동행자에게 보여질 이름');
+  if (await nicknameModal.isVisible().catch(() => false)) {
+    const nicknameInput = page.locator('input[placeholder*="엄마"]').first();
+    if (await nicknameInput.count() > 0) {
+      await nicknameInput.fill('테스터');
+      const startBtn = page.locator('text=시작하기').first();
+      if (await startBtn.count() > 0) await startBtn.click();
+      await page.waitForTimeout(1000);
+    }
+  }
+
   // 부산 또는 이스탄불 텍스트가 있는 요소 클릭
   const projectCard = page.locator('text=부산').first();
   const exists = await projectCard.count();
@@ -87,6 +99,18 @@ test('프로젝트 카드 클릭하여 상세 화면 이동', async ({ page }) =
   await page.waitForLoadState('networkidle');
   // PIN 이미 해제된 상태 (sessionStorage)
   await page.waitForTimeout(2000);
+
+  // 닉네임 모달이 뜨면 닫기
+  const nicknameModal2 = page.locator('text=동행자에게 보여질 이름');
+  if (await nicknameModal2.isVisible().catch(() => false)) {
+    const nicknameInput2 = page.locator('input[placeholder*="엄마"]').first();
+    if (await nicknameInput2.count() > 0) {
+      await nicknameInput2.fill('테스터');
+      const startBtn2 = page.locator('text=시작하기').first();
+      if (await startBtn2.count() > 0) await startBtn2.click();
+      await page.waitForTimeout(1000);
+    }
+  }
 
   const istanbulCard = page.locator('text=이스탄불').first();
   if (await istanbulCard.count() > 0) {
