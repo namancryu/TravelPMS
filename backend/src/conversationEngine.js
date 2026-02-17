@@ -261,6 +261,19 @@ function extractContext(message, context) {
   if (/짧게|당일|주말/.test(lower)) updated.flightTime = 'short';
   if (/멀어도|장거리/.test(lower)) updated.flightTime = 'long';
 
+  // 목적지 감지 - DB의 목적지명과 매칭
+  const destNames = ['도쿄', '오사카', '후쿠오카', '삿포로', '오키나와', '교토', '방콕', '다낭', '호치민', '나트랑', '싱가포르', '발리', '세부', '타이베이', '홍콩', '괌', '사이판', '하와이', '파리', '런던', '로마', '바르셀로나', '이스탄불', '뉴욕', '시드니', '제주도', '부산', '강릉', '여수', '경주', '전주', '속초', '통영', '산토리니', '프라하', '비엔나', '뮌헨', '취리히', '두바이', '몰디브', '호이안', '푸켓', '치앙마이', '쿠알라룸푸르', '카파도키아'];
+  for (const name of destNames) {
+    if (lower.includes(name.toLowerCase())) {
+      updated.destination = name;
+      break;
+    }
+  }
+  // "결정", "갈래", "거기로" 등 확정 표현 + 이전에 언급된 목적지
+  if (/결정|확정|갈래|거기로|그곳으로|가자|가고싶|로 할게/.test(lower) && !updated.destination && context.destination) {
+    updated.destination = context.destination;
+  }
+
   // 키워드 수집
   const keywords = message.match(/[가-힣]{2,}/g) || [];
   updated.keywords = [...new Set([...updated.keywords, ...keywords])];
@@ -273,15 +286,19 @@ function determineNextState(session) {
   const gathered = [ctx.travelStyle, ctx.travelers, ctx.budget, ctx.duration]
     .filter(Boolean).length;
 
-  // 정보가 충분하면 빠르게 추천 (최소 3회 대화 + 3개 정보)
-  if (session.messageCount >= 3 && gathered >= 3) {
+  // 목적지를 이미 결정한 경우 바로 추천
+  if (ctx.destination && session.messageCount >= 2) {
     return STATES.RECOMMENDING;
   }
-  // 또는 5회 대화 + 2개 정보면 추천
-  if (session.messageCount >= 5 && gathered >= 2) {
+  // 정보가 충분하면 빠르게 추천 (최소 2회 대화 + 2개 정보)
+  if (session.messageCount >= 2 && gathered >= 2) {
     return STATES.RECOMMENDING;
   }
-  if (session.messageCount >= 2 && gathered >= 1) {
+  // 또는 3회 대화 + 1개 정보면 추천
+  if (session.messageCount >= 3 && gathered >= 1) {
+    return STATES.RECOMMENDING;
+  }
+  if (session.messageCount >= 1 && gathered >= 1) {
     return STATES.DEEPENING;
   }
   if (session.messageCount >= 1) {
