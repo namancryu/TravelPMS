@@ -1646,6 +1646,11 @@
               // 출발/귀국 슬롯에 편도 항공비 자동 부여
               const isDepart = slot.type === 'flight' && (slot.title.includes('출발') || slot.title.includes('귀국'));
               const displayCost = isDepart && slot.cost === 0 && oneWayFlight > 0 ? oneWayFlight : slot.cost;
+              // 장소 링크: 조식/점심/저녁/호텔/공항/체크인/체크아웃 등 일반 슬롯 제외, 구체적 장소만 링크
+              const genericWords = ['호텔', '공항', '조식', '점심', '저녁', '출발', '귀국', '도착', '체크인', '체크아웃', '이동', '휴식', '자유시간'];
+              const isSpecificPlace = slot.title && !genericWords.some(w => slot.title === w || slot.title === `${w} 식사`)
+                && !['meal', 'flight', 'hotel', 'transport'].includes(slot.type);
+              const placeQuery = isSpecificPlace ? encodeURIComponent(slot.title.replace(/방문|투어|관광|구경/g, '') + ' ' + destName) : null;
               return (
                 <div key={i} className="flex gap-3 items-start py-2">
                   <div className="w-12 text-xs font-mono text-gray-500 pt-0.5 flex-shrink-0">{slot.time}</div>
@@ -1654,7 +1659,14 @@
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-1.5">
                           <span className="text-base">{slot.icon}</span>
-                          <span className="font-medium text-sm">{slot.title}</span>
+                          {isSpecificPlace ? (
+                            <a href={`https://www.google.com/search?q=${placeQuery}`} target="_blank" rel="noopener noreferrer"
+                              className="font-medium text-sm underline decoration-dotted underline-offset-2 hover:text-blue-600">
+                              {slot.title} <span className="text-[10px] no-underline">🔗</span>
+                            </a>
+                          ) : (
+                            <span className="font-medium text-sm">{slot.title}</span>
+                          )}
                         </div>
                         {displayCost > 0 && (
                           <div className="text-right ml-2 flex-shrink-0">
@@ -1664,7 +1676,14 @@
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs opacity-75">📍 {slot.location}</span>
+                        {isSpecificPlace ? (
+                          <a href={`https://www.google.com/maps/search/?api=1&query=${placeQuery}`} target="_blank" rel="noopener noreferrer"
+                            className="text-xs opacity-75 hover:opacity-100 hover:text-blue-600">
+                            📍 {slot.location} <span className="text-[10px]">지도</span>
+                          </a>
+                        ) : (
+                          <span className="text-xs opacity-75">📍 {slot.location}</span>
+                        )}
                         {slot.notes && <span className="text-xs opacity-60">· {slot.notes}</span>}
                       </div>
                     </div>
