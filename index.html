@@ -2669,7 +2669,38 @@
         '뮌헨': '뮌헨', 'Munich': '뮌헨',
         '방콕': '방콕', '크라비': '크라비', '푸켓': '푸켓',
         '칸쿤': '칸쿤', 'Cancun': '칸쿤',
-        '몰디브': '몰디브', 'Maldives': '몰디브'
+        '몰디브': '몰디브', 'Maldives': '몰디브',
+        '퀸스타운': '퀸스타운', 'Queenstown': '퀸스타운',
+        '오클랜드': '오클랜드', 'Auckland': '오클랜드',
+        '크라이스트처치': '크라이스트처치', 'Christchurch': '크라이스트처치',
+        '멜버른': '멜버른', 'Melbourne': '멜버른',
+        '피지': '피지', 'Fiji': '피지',
+        '두브로브니크': '두브로브니크', 'Dubrovnik': '두브로브니크',
+        '산토리니': '산토리니', 'Santorini': '산토리니',
+        '레이캬비크': '레이캬비크', 'Reykjavik': '레이캬비크',
+        '리스본': '리스본', 'Lisbon': '리스본',
+        '부다페스트': '부다페스트', 'Budapest': '부다페스트',
+        '베를린': '베를린', 'Berlin': '베를린',
+        '밀라노': '밀라노', 'Milan': '밀라노',
+        '베네치아': '베네치아', '베니스': '베네치아', 'Venice': '베네치아',
+        '니스': '니스', 'Nice': '니스',
+        '마드리드': '마드리드', 'Madrid': '마드리드',
+        '더블린': '더블린', 'Dublin': '더블린',
+        '헬싱키': '헬싱키', 'Helsinki': '헬싱키',
+        '치앙마이': '치앙마이', 'Chiang Mai': '치앙마이',
+        '코사무이': '코사무이', 'Koh Samui': '코사무이',
+        '하노이': '하노이', 'Hanoi': '하노이',
+        '푸꾸옥': '푸꾸옥', 'Phu Quoc': '푸꾸옥',
+        '보라카이': '보라카이', 'Boracay': '보라카이',
+        '랑카위': '랑카위', 'Langkawi': '랑카위',
+        '코타키나발루': '코타키나발루', 'Kota Kinabalu': '코타키나발루',
+        '라스베가스': '라스베가스', 'Las Vegas': '라스베가스',
+        '샌프란시스코': '샌프란시스코', 'San Francisco': '샌프란시스코',
+        '시카고': '시카고', 'Chicago': '시카고',
+        '밴쿠버': '밴쿠버', 'Vancouver': '밴쿠버',
+        '토론토': '토론토', 'Toronto': '토론토',
+        '카이로': '카이로', 'Cairo': '카이로',
+        '케이프타운': '케이프타운', 'Cape Town': '케이프타운'
       };
       const matchedName = cityAliases[destName] || destName;
 
@@ -2743,11 +2774,38 @@
       const totalUSD = Math.round(totalCost / usdRate);
 
       // 목적지 기반 구매 링크 생성 (destName, country는 위에서 이미 선언됨)
-      const airportMap = { '도쿄': 'nrt', '오사카': 'kix', '방콕': 'bkk', '다낭': 'dad', '파리': 'cdg', '발리': 'dps', '제주도': 'cju', '오키나와': 'oka', '싱가포르': 'sin', '하와이': 'hnl', '이스탄불': 'ist', '런던': 'lhr', '뉴욕': 'jfk', '로마': 'fco', '바르셀로나': 'bcn', '홍콩': 'hkg', '타이베이': 'tpe', '호치민': 'sgn', '세부': 'ceb', '괌': 'gum', '사이판': 'spn', '후쿠오카': 'fuk', '삿포로': 'cts', '나트랑': 'cam', '시드니': 'syd', 'LA': 'lax', '크라비': 'kbv', '푸켓': 'hkt', '칸쿤': 'cun', '몰디브': 'mle', '프라하': 'prg', '빈': 'vie', '취리히': 'zrh', '암스테르담': 'ams', '뮌헨': 'muc', '두바이': 'dxb', '아테네': 'ath', '부산': 'pus', '제주': 'cju', '경주': 'pus', '전주': 'cju', '강릉': 'ynj', '여수': 'rsn' };
+      const airportMap = {
+        // 일본
+        '도쿄': 'tyoa', '오사카': 'osaa', '후쿠오카': 'fuk', '삿포로': 'spka', '오키나와': 'oka', '나고야': 'ngoa', '교토': 'osaa', '나라': 'osaa',
+        // 동남아
+        '방콕': 'bkka', '다낭': 'dad', '호치민': 'sgn', '하노이': 'han', '나트랑': 'cam', '푸꾸옥': 'pqc',
+        '싱가포르': 'sina', '발리': 'dpsa', '자카르타': 'jkta', '세부': 'ceb', '마닐라': 'mnla', '보라카이': 'mph',
+        '크라비': 'kbv', '푸켓': 'hkta', '치앙마이': 'cnx', '코사무이': 'usm',
+        '쿠알라룸푸르': 'kula', '랑카위': 'lgk', '코타키나발루': 'bki',
+        // 중화권
+        '타이베이': 'tpet', '홍콩': 'hkga', '마카오': 'mfm', '상하이': 'shaa', '베이징': 'bjsa',
+        // 대양주
+        '시드니': 'syda', '멜버른': 'mela', '오클랜드': 'akla', '퀸스타운': 'zqn', '크라이스트처치': 'chc', '피지': 'nan',
+        // 미주/태평양
+        '괌': 'gum', '사이판': 'spn', '하와이': 'hnla', '호놀룰루': 'hnla',
+        '뉴욕': 'nyca', 'LA': 'laxa', '로스앤젤레스': 'laxa', '샌프란시스코': 'sfoa', '라스베가스': 'lasa', '시카고': 'chia',
+        '칸쿤': 'cun', '토론토': 'ytoa', '밴쿠버': 'yvra',
+        // 유럽
+        '파리': 'pari', '런던': 'lond', '로마': 'rome', '바르셀로나': 'bcna', '마드리드': 'mada',
+        '프라하': 'prga', '빈': 'viea', '취리히': 'zrha', '암스테르담': 'amsa', '뮌헨': 'muea',
+        '이스탄불': 'ista', '아테네': 'atha', '리스본': 'lisa', '더블린': 'duba',
+        '부다페스트': 'buda', '바르샤바': 'wawa', '헬싱키': 'hela', '스톡홀름': 'stoa',
+        '밀라노': 'mila', '베네치아': 'vcea', '피렌체': 'flra', '니스': 'ncea',
+        '두브로브니크': 'dbva', '산토리니': 'jtr', '레이캬비크': 'reya', '베를린': 'bera',
+        // 중동/아프리카
+        '두바이': 'dxba', '몰디브': 'mlea', '카이로': 'caia', '케이프타운': 'cpta',
+        // 국내
+        '부산': 'pus', '제주': 'cju', '제주도': 'cju'
+      };
       const airportCode = airportMap[matchedName] || null;
 
       const bookingLinks = [
-        { icon: '✈️', label: '항공권 검색', desc: '스카이스캐너에서 최저가 항공권', url: airportCode ? `https://www.skyscanner.co.kr/transport/flights/icn/${airportCode}/` : `https://www.skyscanner.co.kr/transport/flights/icn/?query=${encodeURIComponent(destName)}`, color: 'blue' },
+        { icon: '✈️', label: '항공권 검색', desc: '스카이스캐너에서 최저가 항공권', url: airportCode ? `https://www.skyscanner.co.kr/transport/flights/icn/${airportCode}/` : `https://www.skyscanner.co.kr/transport/flights-from/icn/`, color: 'blue' },
         { icon: '✈️', label: '네이버 항공', desc: '네이버 항공권 비교', url: `https://flight.naver.com/`, color: 'green' },
         { icon: '🏨', label: '호텔 검색', desc: '부킹닷컴에서 숙소 비교', url: `https://www.booking.com/searchresults.ko.html?ss=${encodeURIComponent(destName)}`, color: 'blue' },
         { icon: '🏨', label: '아고다', desc: '아시아 특가 숙소', url: `https://www.agoda.com/ko-kr/search?city=${encodeURIComponent(destName)}`, color: 'red' },
