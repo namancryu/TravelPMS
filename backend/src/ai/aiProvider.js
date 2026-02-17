@@ -1,11 +1,11 @@
 /**
  * Multi AI Provider Abstraction Layer
- * Groq, Gemini, Together.ai 통합
+ * Gemini, Grok(xAI), Groq, Together.ai 통합
  */
 
 require('dotenv').config();
 
-// AI Provider 설정 (우선순위: Gemini > Groq > Together)
+// AI Provider 설정 (우선순위: Gemini > Grok > Groq > Together)
 const AI_PROVIDERS = [
   {
     name: 'gemini',
@@ -14,17 +14,24 @@ const AI_PROVIDERS = [
     enabled: () => !!process.env.GEMINI_API_KEY
   },
   {
+    name: 'grok',
+    model: 'grok-3-mini',
+    endpoint: 'https://api.x.ai/v1/chat/completions',
+    priority: 2,
+    enabled: () => !!process.env.XAI_API_KEY
+  },
+  {
     name: 'groq',
     model: 'llama-3.3-70b-versatile',
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-    priority: 2,
+    priority: 3,
     enabled: () => !!process.env.GROQ_API_KEY
   },
   {
     name: 'together',
     model: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
     endpoint: 'https://api.together.xyz/v1/chat/completions',
-    priority: 3,
+    priority: 4,
     enabled: () => !!process.env.TOGETHER_API_KEY
   }
 ];
@@ -47,38 +54,7 @@ function getGeminiModel() {
 }
 
 /**
- * Groq API 호출 (OpenAI 호환 형식)
- */
-async function callGroq(prompt) {
-  const groqProvider = AI_PROVIDERS.find(p => p.name === 'groq');
-  const response = await fetch(groqProvider.endpoint, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: groqProvider.model,
-      messages: [
-        { role: 'system', content: '당신은 여행 전문가입니다. 반드시 100% 순수 한글로만 답변하세요. 중국어(漢字), 일본어, 영어는 절대 사용하지 마세요. 친근하게 답변하세요.' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 2000
-    })
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Groq API error: ${response.status} - ${error}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
-/**
- * Gemini API 호출
+ * Gemini API 호출 (분당 쿼터 초과 시 자동 재시도)
  */
 async function callGemini(prompt, retries = 2) {
   const model = getGeminiModel();
@@ -105,18 +81,77 @@ async function callGemini(prompt, retries = 2) {
 }
 
 /**
+ * Grok (xAI) API 호출 (OpenAI 호환 형식)
+ */
+async function callGrok(prompt) {
+  const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'grok-3-mini',
+      messages: [
+        { role: 'system', content: '당신은 여행 전문가입니다. 반드시 100% 순수 한글로만 답변하세요. 중국어(漢字), 일본어, 영어는 절대 사용하지 마세요. 친근하게 답변하세요.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 2000
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Grok API error: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+/**
+ * Groq API 호출 (OpenAI 호환 형식)
+ */
+async function callGroq(prompt) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: '당신은 여행 전문가입니다. 반드시 100% 순수 한글로만 답변하세요. 중국어(漢字), 일본어, 영어는 절대 사용하지 마세요. 친근하게 답변하세요.' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 2000
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Groq API error: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+/**
  * Together.ai API 호출 (OpenAI 호환 형식)
  */
 async function callTogether(prompt) {
-  const togetherProvider = AI_PROVIDERS.find(p => p.name === 'together');
-  const response = await fetch(togetherProvider.endpoint, {
+  const response = await fetch('https://api.together.xyz/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${process.env.TOGETHER_API_KEY}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: togetherProvider.model,
+      model: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
       messages: [
         { role: 'system', content: '당신은 여행 전문가입니다. 반드시 100% 순수 한글로만 답변하세요. 중국어(漢字), 일본어, 영어는 절대 사용하지 마세요. 친근하게 답변하세요.' },
         { role: 'user', content: prompt }
@@ -137,8 +172,7 @@ async function callTogether(prompt) {
 
 /**
  * 통합 AI 호출 함수 (우선순위 기반 폴백)
- * @param {string} prompt - 프롬프트
- * @returns {Promise<{response: string, provider: string}>}
+ * Gemini → Grok → Groq → Together → Mock
  */
 async function generateAIResponse(prompt) {
   const enabledProviders = AI_PROVIDERS
@@ -156,11 +190,14 @@ async function generateAIResponse(prompt) {
 
       let response;
       switch (provider.name) {
-        case 'groq':
-          response = await callGroq(prompt);
-          break;
         case 'gemini':
           response = await callGemini(prompt);
+          break;
+        case 'grok':
+          response = await callGrok(prompt);
+          break;
+        case 'groq':
+          response = await callGroq(prompt);
           break;
         case 'together':
           response = await callTogether(prompt);
@@ -175,7 +212,6 @@ async function generateAIResponse(prompt) {
     } catch (err) {
       console.warn(`⚠️ ${provider.name} failed: ${err.message}`);
 
-      // Quota 초과 감지
       const isQuotaError = err.message && (
         err.message.includes('quota') ||
         err.message.includes('429') ||
@@ -187,12 +223,10 @@ async function generateAIResponse(prompt) {
         console.error(`❌ ${provider.name} quota exceeded, trying next provider...`);
       }
 
-      // 다음 provider 시도
       continue;
     }
   }
 
-  // 모든 provider 실패
   console.error('❌ All AI providers failed, fallback to Mock mode');
   return { response: null, provider: 'mock' };
 }

@@ -142,8 +142,9 @@ if (enabledProviders.length > 0) {
   aiMode = primaryProvider.name;
 
   const providerLabels = {
+    'gemini': '🤖 Gemini AI (Flash)',
+    'grok': '🧠 Grok AI (xAI)',
     'groq': '⚡ Groq AI (Llama 3.3 70B)',
-    'gemini': '🤖 Gemini AI (Pro)',
     'together': '🌐 Together AI (Llama 3.1 70B)'
   };
 
@@ -1480,8 +1481,9 @@ function getLocalIP() {
 server.listen(PORT, '0.0.0.0', () => {
   const localIP = getLocalIP();
   const aiModeLabels = {
-    'groq': '⚡ Groq AI',
     'gemini': '🤖 Gemini AI',
+    'grok': '🧠 Grok AI',
+    'groq': '⚡ Groq AI',
     'together': '🌐 Together AI',
     'mock': '📋 Demo Mode'
   };
