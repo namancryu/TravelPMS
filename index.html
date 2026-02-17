@@ -2743,11 +2743,11 @@
       const totalUSD = Math.round(totalCost / usdRate);
 
       // 목적지 기반 구매 링크 생성 (destName, country는 위에서 이미 선언됨)
-      const airportMap = { '도쿄': 'nrt', '오사카': 'kix', '방콕': 'bkk', '다낭': 'dad', '파리': 'cdg', '발리': 'dps', '제주도': 'cju', '오키나와': 'oka', '싱가포르': 'sin', '하와이': 'hnl', '이스탄불': 'ist', '런던': 'lhr', '뉴욕': 'jfk', '로마': 'fco', '바르셀로나': 'bcn', '홍콩': 'hkg', '타이베이': 'tpe', '호치민': 'sgn', '세부': 'ceb', '괌': 'gum', '사이판': 'spn', '후쿠오카': 'fuk', '삿포로': 'cts', '나트랑': 'cam', '시드니': 'syd', 'LA': 'lax' };
-      const airportCode = airportMap[destName] || destName.toLowerCase();
+      const airportMap = { '도쿄': 'nrt', '오사카': 'kix', '방콕': 'bkk', '다낭': 'dad', '파리': 'cdg', '발리': 'dps', '제주도': 'cju', '오키나와': 'oka', '싱가포르': 'sin', '하와이': 'hnl', '이스탄불': 'ist', '런던': 'lhr', '뉴욕': 'jfk', '로마': 'fco', '바르셀로나': 'bcn', '홍콩': 'hkg', '타이베이': 'tpe', '호치민': 'sgn', '세부': 'ceb', '괌': 'gum', '사이판': 'spn', '후쿠오카': 'fuk', '삿포로': 'cts', '나트랑': 'cam', '시드니': 'syd', 'LA': 'lax', '크라비': 'kbv', '푸켓': 'hkt', '칸쿤': 'cun', '몰디브': 'mle', '프라하': 'prg', '빈': 'vie', '취리히': 'zrh', '암스테르담': 'ams', '뮌헨': 'muc', '두바이': 'dxb', '아테네': 'ath', '부산': 'pus', '제주': 'cju', '경주': 'pus', '전주': 'cju', '강릉': 'ynj', '여수': 'rsn' };
+      const airportCode = airportMap[matchedName] || null;
 
       const bookingLinks = [
-        { icon: '✈️', label: '항공권 검색', desc: '스카이스캐너에서 최저가 항공권', url: `https://www.skyscanner.co.kr/transport/flights/icn/${airportCode}/`, color: 'blue' },
+        { icon: '✈️', label: '항공권 검색', desc: '스카이스캐너에서 최저가 항공권', url: airportCode ? `https://www.skyscanner.co.kr/transport/flights/icn/${airportCode}/` : `https://www.skyscanner.co.kr/transport/flights/icn/?query=${encodeURIComponent(destName)}`, color: 'blue' },
         { icon: '✈️', label: '네이버 항공', desc: '네이버 항공권 비교', url: `https://flight.naver.com/`, color: 'green' },
         { icon: '🏨', label: '호텔 검색', desc: '부킹닷컴에서 숙소 비교', url: `https://www.booking.com/searchresults.ko.html?ss=${encodeURIComponent(destName)}`, color: 'blue' },
         { icon: '🏨', label: '아고다', desc: '아시아 특가 숙소', url: `https://www.agoda.com/ko-kr/search?city=${encodeURIComponent(destName)}`, color: 'red' },
