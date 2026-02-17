@@ -5,8 +5,15 @@
 
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 const DB_PATH = path.join(__dirname, '../../data/destinations.db');
+
+// data 디렉토리 자동 생성
+const dataDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
 
 function initDatabase() {
   const db = new Database(DB_PATH);

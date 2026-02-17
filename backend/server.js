@@ -105,9 +105,13 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..')));
 
 // Multer 설정 (파일 업로드)
+const uploadsDir = path.join(__dirname, 'data/uploads/receipts');
+const fs = require('fs');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, 'data/uploads/receipts'));
+    cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
