@@ -142,7 +142,7 @@
           next = { ...state, consulting: { ...state.consulting, recommendations: action.payload } };
           break;
         case 'SET_PROJECT':
-          next = { ...state, project: action.payload };
+          next = { ...state, project: action.payload, stage: action.payload ? STAGES.PLANNING : state.stage };
           if (action.payload?.id) {
             localStorage.setItem('travelPMS_lastProjectId', action.payload.id);
           }
