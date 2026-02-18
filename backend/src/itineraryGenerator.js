@@ -12,17 +12,81 @@ const itineraryTemplates = {
       { time: '09:00', type: 'flight', icon: '✈️', title: '인천공항 출발', location: '인천국제공항', cost: 0, notes: '2시간 전 도착' },
       { time: '11:00', type: 'flight', icon: '🛬', title: '간사이공항 도착', location: '간사이국제공항', cost: 0, notes: '입국심사 30-40분' },
       { time: '12:00', type: 'transport', icon: '🚃', title: '난카이 라피트 → 난바', location: '간사이공항역', cost: 15000, notes: '약 40분 소요' },
-      { time: '13:00', type: 'food', icon: '🍜', title: '이치란 라멘', location: '도톤보리', cost: 12000, notes: '줄 서기 20-30분 예상' },
-      { time: '14:30', type: 'hotel', icon: '🏨', title: '호텔 체크인', location: '난바역 근처', cost: 120000, notes: '짐 맡기고 외출' },
-      { time: '15:30', type: 'activity', icon: '🏯', title: '도톤보리 산책', location: '도톤보리', cost: 0, notes: '글리코 사인 포토 스팟' },
+      { time: '13:00', type: 'food', icon: '🍜', title: '이치란 라멘', location: '도톤보리', cost: 12000, notes: '줄 서기 20-30분 예상',
+        detail: {
+          description: '오사카 도착 첫 식사! 도톤보리 라멘 거리에서 현지 인기 라멘을 맛보세요.',
+          options: [
+            { name: '이치란 라멘 도톤보리점', category: '라멘', priceRange: '890~1290엔 (약 8,000~12,000원)', rating: 4.5, highlights: ['24시간 영업', '1인석 특화', '돈코츠 라멘 전문'], reason: '개인 부스에서 편하게 먹을 수 있어 가족 여행에 적합', mapQuery: '이치란 라멘 도톤보리' },
+            { name: '킨류 라멘', category: '라멘', priceRange: '약 700엔 (약 6,500원)', rating: 4.3, highlights: ['도톤보리 랜드마크', '가성비 최고', '금용 간판'], reason: '도톤보리 상징인 금용 간판 아래 위치, 저렴하고 양 많음', mapQuery: '킨류라멘 도톤보리' },
+            { name: '카무쿠라 라멘', category: '라멘', priceRange: '약 850엔 (약 7,800원)', rating: 4.2, highlights: ['담백한 맛', '여성 인기', '야채 라멘'], reason: '진한 돈코츠가 부담스러우면 담백한 카무쿠라 추천', mapQuery: '카무쿠라 난바' }
+          ],
+          tips: ['점심시간(11~13시) 피크 피하기', '쿠폰 자판기로 먼저 주문 후 착석'],
+          duration: '약 40분',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
+      { time: '14:30', type: 'hotel', icon: '🏨', title: '호텔 체크인', location: '난바역 근처', cost: 120000, notes: '짐 맡기고 외출',
+        detail: {
+          description: '난바역 도보 5분 이내 호텔 추천. 도톤보리/신사이바시 접근성 최고.',
+          options: [
+            { name: '크로스호텔 오사카', category: '디자인 호텔', priceRange: '1박 12~18만원', rating: 4.4, highlights: ['난바역 3분', '모던 인테리어', '루프탑 바'], reason: '도톤보리 바로 옆, 깔끔한 시설과 위치 최고', mapQuery: '크로스호텔 오사카' },
+            { name: '도톤보리 호텔', category: '비즈니스 호텔', priceRange: '1박 8~12만원', rating: 4.1, highlights: ['도톤보리 위치', '가성비', '편의점 근처'], reason: '도톤보리 한복판, 가격 대비 위치가 뛰어남', mapQuery: '도톤보리 호텔' },
+            { name: '스위소텔 난카이 오사카', category: '럭셔리', priceRange: '1박 20~35만원', rating: 4.6, highlights: ['난바역 직결', '고층 뷰', '수영장'], reason: '난카이 라피트 하차 후 바로 체크인 가능, 프리미엄 옵션', mapQuery: '스위소텔 난카이 오사카' }
+          ],
+          tips: ['체크인 전 짐은 프론트에 맡기기 가능', '난바역 직결 호텔이면 비 오는 날 편리'],
+          duration: '약 20분',
+          reservationNeeded: true,
+          childFriendly: true
+        }
+      },
+      { time: '15:30', type: 'activity', icon: '🏯', title: '도톤보리 산책', location: '도톤보리', cost: 0, notes: '글리코 사인 포토 스팟',
+        detail: {
+          description: '오사카의 상징 도톤보리! 글리코 사인, 거대 간판들, 운하를 따라 산책하세요.',
+          options: [
+            { name: '글리코 사인 포토스팟', category: '랜드마크', priceRange: '무료', rating: 4.7, highlights: ['오사카 대표 포토스팟', '에비스바시 위', '야경 필수'], reason: '오사카 여행 인증샷 필수 장소', mapQuery: '글리코 사인 도톤보리' },
+            { name: '도톤보리 리버크루즈', category: '체험', priceRange: '약 900엔 (약 8,300원)', rating: 4.3, highlights: ['20분 운하 크루즈', '야경 감상', '사진 촬영'], reason: '운하에서 보는 도톤보리 네온 야경이 색다름', mapQuery: '도톤보리 리버크루즈' },
+            { name: '호젠지 요코초', category: '골목', priceRange: '무료', rating: 4.4, highlights: ['전통 골목길', '이끼 부동명왕', '소원 빌기'], reason: '번화가 뒤편 숨겨진 전통 골목, 조용하고 분위기 있음', mapQuery: '호젠지 요코초 오사카' }
+          ],
+          tips: ['글리코 사인은 저녁에 조명 켜진 후 촬영 추천', '호젠지 요코초는 도톤보리 남쪽 골목'],
+          duration: '약 1시간 30분',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
       { time: '17:00', type: 'shopping', icon: '🛍️', title: '신사이바시 쇼핑', location: '신사이바시스지', cost: 50000, notes: '돈키호테, 드럭스토어' },
-      { time: '19:00', type: 'food', icon: '🐙', title: '타코야키 & 오코노미야키', location: '도톤보리', cost: 15000, notes: '쿠쿠루 타코야키 추천' },
+      { time: '19:00', type: 'food', icon: '🐙', title: '타코야키 & 오코노미야키', location: '도톤보리', cost: 15000, notes: '쿠쿠루 타코야키 추천',
+        detail: {
+          description: '오사카의 소울푸드! 타코야키와 오코노미야키를 본고장에서 맛보세요.',
+          options: [
+            { name: '쿠쿠루 타코야키', category: '타코야키', priceRange: '약 600엔 (약 5,500원)', rating: 4.5, highlights: ['도톤보리 본점', '큰 문어 조각', '바삭한 식감'], reason: '관광객과 현지인 모두 인정하는 타코야키 맛집', mapQuery: '쿠쿠루 타코야키 도톤보리' },
+            { name: '치보 오코노미야키', category: '오코노미야키', priceRange: '약 1,000~1,500엔 (약 9,200~13,800원)', rating: 4.4, highlights: ['1973년 창업', '도톤보리 본점', '돼지고기 믹스'], reason: '오사카식 오코노미야키 원조 맛을 경험', mapQuery: '치보 오코노미야키 도톤보리' },
+            { name: '아지노야 타코야키', category: '타코야키', priceRange: '약 500엔 (약 4,600원)', rating: 4.2, highlights: ['소스 없이 먹는 스타일', '현지인 추천', '간식용'], reason: '소금만으로 먹는 담백한 타코야키, 현지인 단골집', mapQuery: '아지노야 타코야키' }
+          ],
+          tips: ['타코야키는 갓 나온 것이 매우 뜨거우니 주의', '오코노미야키는 직접 굽는 가게도 있음'],
+          duration: '약 45분',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
       { time: '21:00', type: 'activity', icon: '🌃', title: '도톤보리 야경', location: '에비스바시', cost: 0, notes: '네온사인 포토타임' }
     ],
     usj: [
       { time: '07:30', type: 'food', icon: '🥐', title: '호텔 조식 / 편의점', location: '호텔', cost: 5000, notes: '가볍게 먹기' },
       { time: '08:30', type: 'transport', icon: '🚃', title: '유니버셜시티역 이동', location: 'JR', cost: 3000, notes: '니시쿠조 환승' },
-      { time: '09:00', type: 'activity', icon: '🎢', title: 'USJ 오픈 입장', location: 'USJ', cost: 85000, notes: '익스프레스 패스 필수' },
+      { time: '09:00', type: 'activity', icon: '🎢', title: 'USJ 오픈 입장', location: 'USJ', cost: 85000, notes: '익스프레스 패스 필수',
+        detail: {
+          description: '유니버셜 스튜디오 재팬! 해리포터, 닌텐도월드, 쥬라기파크 등 인기 어트랙션 가득.',
+          options: [
+            { name: '1데이 스튜디오 패스', category: '입장권', priceRange: '약 8,600엔~ (약 79,000원~)', rating: 4.7, highlights: ['전체 구역 입장', '날짜별 가격 변동', '온라인 사전 구매'], reason: '기본 입장권, 성수기에는 가격 상승', mapQuery: 'USJ 유니버셜 스튜디오 재팬' },
+            { name: '익스프레스 패스 4', category: '패스트패스', priceRange: '약 7,800엔~ (약 71,800원~)', rating: 4.5, highlights: ['4개 어트랙션 우선탑승', '대기시간 단축', '한정판매'], reason: '인기 어트랙션 대기시간 1~2시간 절약', mapQuery: 'USJ 익스프레스 패스' }
+          ],
+          tips: ['공식 앱으로 대기시간 실시간 확인', '오픈 30분 전 도착 추천', '익스프레스 패스는 사전 온라인 구매 필수'],
+          duration: '종일 (약 10~12시간)',
+          reservationNeeded: true,
+          childFriendly: true
+        }
+      },
       { time: '09:15', type: 'activity', icon: '🧙', title: '해리포터 위저딩 월드', location: 'USJ', cost: 0, notes: '오픈런 추천 구역' },
       { time: '11:00', type: 'activity', icon: '🦖', title: '쥬라기 파크 라이드', location: 'USJ', cost: 0, notes: '비옷 준비' },
       { time: '12:30', type: 'food', icon: '🍔', title: 'USJ 내 점심', location: 'USJ', cost: 15000, notes: '레스토랑 예약 추천' },
@@ -33,14 +97,76 @@ const itineraryTemplates = {
       { time: '21:30', type: 'transport', icon: '🚃', title: '호텔 복귀', location: 'JR', cost: 3000, notes: '' }
     ],
     culture: [
-      { time: '08:00', type: 'food', icon: '☕', title: '카페 모닝', location: '호텔 근처', cost: 8000, notes: '일본식 모닝 세트' },
-      { time: '09:30', type: 'activity', icon: '🏯', title: '오사카성 관람', location: '오사카성공원', cost: 8000, notes: '천수각 전망대 포함' },
+      { time: '08:00', type: 'food', icon: '☕', title: '카페 모닝', location: '호텔 근처', cost: 8000, notes: '일본식 모닝 세트',
+        detail: {
+          description: '일본 특유의 모닝 세트 문화를 체험하세요. 음료 가격에 토스트+계란+샐러드가 포함!',
+          options: [
+            { name: '코메다 커피', category: '카페', priceRange: '약 500~800엔 (약 4,600~7,400원)', rating: 4.3, highlights: ['모닝 세트 무료', '두꺼운 토스트', '전국 체인'], reason: '11시까지 음료 주문 시 토스트+계란 무료 제공', mapQuery: '코메다 커피 난바' },
+            { name: '호시노 커피', category: '카페', priceRange: '약 600~1,000엔 (약 5,500~9,200원)', rating: 4.4, highlights: ['핸드드립', '수플레 팬케이크', '분위기 좋음'], reason: '여유로운 아침을 원한다면 추천', mapQuery: '호시노 커피 오사카' }
+          ],
+          tips: ['11시 전에 방문해야 모닝 세트 이용 가능', '편의점 오니기리도 훌륭한 대안'],
+          duration: '약 30분',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
+      { time: '09:30', type: 'activity', icon: '🏯', title: '오사카성 관람', location: '오사카성공원', cost: 8000, notes: '천수각 전망대 포함',
+        detail: {
+          description: '도요토미 히데요시가 세운 일본 3대 명성. 천수각 전망대에서 오사카 시내를 한눈에!',
+          options: [
+            { name: '오사카성 천수각', category: '역사', priceRange: '600엔 (약 5,500원)', rating: 4.5, highlights: ['8층 전망대', '역사 전시', '갑옷 체험'], reason: '오사카의 상징, 전망대에서 도시 전경 감상', mapQuery: '오사카성 천수각' },
+            { name: '니시노마루 정원', category: '정원', priceRange: '200엔 (약 1,800원)', rating: 4.3, highlights: ['벚꽃 명소', '오사카성 포토스팟', '잔디 광장'], reason: '성 서쪽에서 가장 아름다운 오사카성 사진 촬영 가능', mapQuery: '니시노마루 정원 오사카성' }
+          ],
+          tips: ['오전 10시 전 방문 시 한적함', '엘리베이터는 5층까지, 이후 계단'],
+          duration: '약 1시간 30분',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
       { time: '11:30', type: 'activity', icon: '🌸', title: '오사카성 공원 산책', location: '오사카성공원', cost: 0, notes: '포토스팟 다수' },
-      { time: '12:30', type: 'food', icon: '🍣', title: '구로몬 시장 투어', location: '구로몬시장', cost: 20000, notes: '참치, 성게, 딸기' },
+      { time: '12:30', type: 'food', icon: '🍣', title: '구로몬 시장 투어', location: '구로몬시장', cost: 20000, notes: '참치, 성게, 딸기',
+        detail: {
+          description: '"오사카의 부엌" 구로몬시장에서 신선한 해산물과 과일을 맛보세요!',
+          options: [
+            { name: '구로몬 사시미 가게', category: '해산물', priceRange: '약 1,000~3,000엔 (약 9,200~27,600원)', rating: 4.6, highlights: ['참치회', '성게 알', '신선 사시미'], reason: '시장 내 즉석에서 써는 회가 최고 신선', mapQuery: '구로몬시장 사시미' },
+            { name: '구로몬 딸기 가게', category: '과일', priceRange: '약 500~1,500엔 (약 4,600~13,800원)', rating: 4.4, highlights: ['이치고 다이후쿠', '딸기 꼬치', '시즌 과일'], reason: '일본 딸기의 달콤함을 현장에서 즉시 맛볼 수 있음', mapQuery: '구로몬시장 딸기' },
+            { name: '다이와 스시', category: '스시', priceRange: '약 1,500~2,500엔 (약 13,800~23,000원)', rating: 4.5, highlights: ['참치 스시', '카운터석', '시장 분위기'], reason: '시장에서 바로 잡은 재료로 만든 스시', mapQuery: '다이와 스시 구로몬시장' }
+          ],
+          tips: ['현금 준비 (카드 안 되는 곳 많음)', '오후 3시 이후 문 닫는 가게 많으니 일찍 방문'],
+          duration: '약 1시간 30분',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
       { time: '14:30', type: 'transport', icon: '🚃', title: 'JR로 교토 이동', location: 'JR 오사카역', cost: 8000, notes: '약 30분' },
-      { time: '15:30', type: 'activity', icon: '⛩️', title: '후시미 이나리 신사', location: '교토', cost: 0, notes: '천 개의 도리이' },
+      { time: '15:30', type: 'activity', icon: '⛩️', title: '후시미 이나리 신사', location: '교토', cost: 0, notes: '천 개의 도리이',
+        detail: {
+          description: '주홍색 도리이가 끝없이 이어지는 신비로운 신사. 교토 인기 1위 관광지!',
+          options: [
+            { name: '후시미 이나리 도리이 터널', category: '신사', priceRange: '무료', rating: 4.8, highlights: ['천본도리이', '24시간 개방', '정상 왕복 2시간'], reason: '교토 여행 필수 코스, 사진 촬영 명소', mapQuery: '후시미 이나리 타이샤' },
+            { name: '이나리산 정상 하이킹', category: '하이킹', priceRange: '무료', rating: 4.5, highlights: ['왕복 2시간', '교토 전경', '운동'], reason: '체력이 된다면 정상까지 올라가면 교토 시내가 한눈에', mapQuery: '이나리산 정상' }
+          ],
+          tips: ['오전이나 해질 무렵이 사진 찍기 좋음', '정상까지 안 가도 중간 전망대에서 좋은 뷰'],
+          duration: '약 1시간~2시간',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
       { time: '17:30', type: 'activity', icon: '🎋', title: '기온 거리 산책', location: '교토', cost: 0, notes: '게이샤 만남 가능' },
-      { time: '19:00', type: 'food', icon: '🍖', title: '교토역 저녁', location: '교토역 빌딩', cost: 15000, notes: '규카츠, 라멘' },
+      { time: '19:00', type: 'food', icon: '🍖', title: '교토역 저녁', location: '교토역 빌딩', cost: 15000, notes: '규카츠, 라멘',
+        detail: {
+          description: '교토역 빌딩 10층 라멘 골목 또는 지하 레스토랑가에서 저녁!',
+          options: [
+            { name: '교토 규카츠 교토카츠규', category: '규카츠', priceRange: '약 1,500~2,500엔 (약 13,800~23,000원)', rating: 4.5, highlights: ['레어 규카츠', '셀프 조리', '교토 본점'], reason: '겉은 바삭 속은 레어한 규카츠를 돌판에서 직접 구워 먹기', mapQuery: '교토카츠규 교토역' },
+            { name: '마스타니 라멘', category: '라멘', priceRange: '약 800엔 (약 7,400원)', rating: 4.3, highlights: ['교토 라멘', '닭뼈 육수', '진한 맛'], reason: '교토 스타일 닭뼈 라멘의 대표 맛집', mapQuery: '마스타니 라멘 교토역' },
+            { name: '나카무라 우동', category: '우동', priceRange: '약 700엔 (약 6,400원)', rating: 4.2, highlights: ['교토식 우동', '가볍게 먹기', '다시 국물'], reason: '교토 특유의 담백한 다시 국물 우동', mapQuery: '나카무라 우동 교토역' }
+          ],
+          tips: ['교토역 10층 라멘 골목은 줄이 길 수 있음', '이세탄 지하 식품관도 도시락 선택지 풍부'],
+          duration: '약 50분',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
       { time: '20:30', type: 'transport', icon: '🚃', title: 'JR로 오사카 복귀', location: 'JR 교토역', cost: 8000, notes: '' }
     ],
     shopping: [
@@ -73,7 +199,20 @@ const itineraryTemplates = {
       { time: '14:30', type: 'hotel', icon: '🏨', title: '호텔 체크인', location: '신주쿠/시부야', cost: 130000, notes: '' },
       { time: '15:30', type: 'activity', icon: '🏙️', title: '시부야 스크램블 교차로', location: '시부야', cost: 0, notes: '스타벅스에서 감상' },
       { time: '17:00', type: 'shopping', icon: '🛍️', title: '하라주쿠 타케시타 거리', location: '하라주쿠', cost: 30000, notes: '' },
-      { time: '19:00', type: 'food', icon: '🍜', title: '이자카야 저녁', location: '신주쿠', cost: 20000, notes: '오모이데 요코초' },
+      { time: '19:00', type: 'food', icon: '🍜', title: '이자카야 저녁', location: '신주쿠', cost: 20000, notes: '오모이데 요코초',
+        detail: {
+          description: '신주쿠 뒷골목 오모이데 요코초(추억의 골목)에서 일본 이자카야 문화 체험!',
+          options: [
+            { name: '오모이데 요코초 야키토리', category: '야키토리', priceRange: '약 1,000~2,000엔 (약 9,200~18,400원)', rating: 4.4, highlights: ['숯불 야키토리', '레트로 분위기', '현지인 맛집'], reason: '좁은 골목의 활기찬 분위기와 숯불 향이 매력적', mapQuery: '오모이데 요코초 신주쿠' },
+            { name: '이세야 야키토리', category: '야키토리', priceRange: '약 800~1,500엔 (약 7,400~13,800원)', rating: 4.3, highlights: ['1928년 창업', '키치조지 본점', '저렴한 가격'], reason: '역사 깊은 야키토리 전문점', mapQuery: '이세야 야키토리 신주쿠' },
+            { name: '토라후구테이 (복어)', category: '이자카야', priceRange: '약 3,000~5,000엔 (약 27,600~46,000원)', rating: 4.5, highlights: ['복어 회', '복어 냄비', '코스 요리'], reason: '특별한 저녁을 원한다면 복어 코스 추천', mapQuery: '토라후구테이 신주쿠' }
+          ],
+          tips: ['오모이데 요코초는 금연석 거의 없음', '현금만 받는 가게 많으니 현금 준비'],
+          duration: '약 1시간',
+          reservationNeeded: false,
+          childFriendly: false
+        }
+      },
       { time: '21:00', type: 'activity', icon: '🌃', title: '가부키초 야경', location: '신주쿠', cost: 0, notes: '' }
     ],
     culture: [
@@ -93,7 +232,20 @@ const itineraryTemplates = {
       { time: '14:30', type: 'transport', icon: '🚕', title: '그랩으로 호텔 이동', location: '공항', cost: 5000, notes: '20분 소요' },
       { time: '15:30', type: 'hotel', icon: '🏨', title: '리조트 체크인', location: '미케비치', cost: 100000, notes: '풀빌라 추천' },
       { time: '16:30', type: 'activity', icon: '🏖️', title: '미케비치 수영', location: '미케비치', cost: 0, notes: '선베드 무료' },
-      { time: '18:30', type: 'food', icon: '🍜', title: '쌀국수 저녁', location: '미케비치', cost: 5000, notes: '포보 or 분짜' },
+      { time: '18:30', type: 'food', icon: '🍜', title: '쌀국수 저녁', location: '미케비치', cost: 5000, notes: '포보 or 분짜',
+        detail: {
+          description: '베트남 대표 음식 쌀국수(포)와 분짜를 현지에서 맛보세요!',
+          options: [
+            { name: '포 29', category: '쌀국수', priceRange: '약 40,000~60,000동 (약 2,200~3,300원)', rating: 4.4, highlights: ['현지인 맛집', '가성비 최고', '소고기 쌀국수'], reason: '현지인들이 많이 찾는 진짜 베트남 쌀국수', mapQuery: '포 29 다낭' },
+            { name: '반미 바', category: '반미', priceRange: '약 25,000~35,000동 (약 1,400~1,900원)', rating: 4.3, highlights: ['베트남 바게트 샌드위치', '다양한 속재료', '테이크아웃'], reason: '쌀국수와 함께 베트남 3대 음식 반미도 꼭 맛보기', mapQuery: '반미 바 다낭' },
+            { name: '분짜 109', category: '분짜', priceRange: '약 50,000~70,000동 (약 2,800~3,900원)', rating: 4.5, highlights: ['숯불 고기', '느억맘 소스', '하노이 스타일'], reason: '달콤한 느억맘에 찍어 먹는 분짜가 중독적', mapQuery: '분짜 109 다낭' }
+          ],
+          tips: ['길거리 음식도 대부분 안전하고 맛있음', '빈 그룹 식당이 관광객에게 편리'],
+          duration: '약 30분',
+          reservationNeeded: false,
+          childFriendly: true
+        }
+      },
       { time: '20:00', type: 'activity', icon: '🌉', title: '용다리 야경', location: '한강', cost: 0, notes: '주말 불쇼 21시' }
     ],
     banahills: [
@@ -175,7 +327,20 @@ const itineraryTemplates = {
       { time: '20:30', type: 'activity', icon: '🌃', title: '갈라타 타워 야경', location: '갈라타', cost: 25000, notes: '이스탄불 360도 파노라마' }
     ],
     cappadocia: [
-      { time: '05:00', type: 'activity', icon: '🎈', title: '카파도키아 열기구 투어', location: '괴레메', cost: 250000, notes: '일출 열기구, 사전예약 필수!' },
+      { time: '05:00', type: 'activity', icon: '🎈', title: '카파도키아 열기구 투어', location: '괴레메', cost: 250000, notes: '일출 열기구, 사전예약 필수!',
+        detail: {
+          description: '카파도키아의 하이라이트! 일출과 함께 기암괴석 위를 떠다니는 열기구 체험.',
+          options: [
+            { name: 'Royal Balloon', category: '열기구', priceRange: '약 200~300유로 (약 28~42만원)', rating: 4.8, highlights: ['프리미엄 업체', '소규모 바구니', '샴페인 서비스'], reason: '소규모 탑승(12~16인)으로 쾌적한 비행 경험', mapQuery: 'Royal Balloon Cappadocia' },
+            { name: 'Butterfly Balloons', category: '열기구', priceRange: '약 180~250유로 (약 25~35만원)', rating: 4.7, highlights: ['경험 많은 파일럿', '사진 서비스', '중간 가격대'], reason: '안전하고 경치 좋은 루트로 유명', mapQuery: 'Butterfly Balloons Cappadocia' },
+            { name: 'Voyager Balloons', category: '열기구', priceRange: '약 150~200유로 (약 21~28만원)', rating: 4.5, highlights: ['가성비', '호텔 픽업', '조식 포함'], reason: '합리적 가격에 호텔 픽업과 간단한 조식 포함', mapQuery: 'Voyager Balloons Cappadocia' }
+          ],
+          tips: ['최소 2주 전 예약 필수 (성수기 매진)', '기상 조건으로 취소될 수 있으니 일정 초반에 배치', '따뜻한 옷 준비 (새벽 고도 높으면 추움)'],
+          duration: '약 1시간 (비행) + 픽업/이동 포함 3시간',
+          reservationNeeded: true,
+          childFriendly: false
+        }
+      },
       { time: '08:00', type: 'food', icon: '🥐', title: '동굴 호텔 조식', location: '괴레메', cost: 0, notes: '포함' },
       { time: '10:00', type: 'activity', icon: '🏔️', title: '괴레메 오픈에어 박물관', location: '괴레메', cost: 20000, notes: '암벽 교회 프레스코화' },
       { time: '12:30', type: 'food', icon: '🍲', title: '터키식 항아리 케밥', location: '괴레메', cost: 25000, notes: '도자기에서 요리하는 케밥' },
@@ -452,6 +617,21 @@ async function generateWithAI(geminiModel, destination, duration, travelers, bud
 - 이동 수단과 시간
 - 각 항목 예상 비용 (원화)
 
+## 상세 정보 (detail 필드) 규칙
+food(식사) 슬롯은 반드시 detail 포함:
+- options: 실제 식당 2~3곳 (name, category, priceRange, rating, highlights 배열, reason)
+- tips: 실용 팁 1~2개
+- duration: 소요시간, reservationNeeded: 예약 필요 여부, childFriendly: 아이 동반 적합
+
+activity(관광) 슬롯도 detail 포함:
+- description: 명소 설명, options: 관련 명소/코스 2~3개 (name, priceRange, rating, highlights, reason)
+- tips: 포토스팟, 주의사항
+
+hotel(숙소) 슬롯도 detail 포함:
+- options: 호텔 2~3곳 (name, category, priceRange, rating, highlights, reason)
+
+transport(교통) 슬롯: detail 생략 가능.
+
 ## 응답 JSON 형식
 {
   "days": [
@@ -459,7 +639,25 @@ async function generateWithAI(geminiModel, destination, duration, travelers, bud
       "dayNumber": 1,
       "title": "도착 & 첫 탐험",
       "slots": [
-        {"time": "09:00", "type": "flight", "icon": "✈️", "title": "인천공항 출발", "location": "인천", "cost": 0, "notes": "2시간 전 도착"}
+        {
+          "time": "09:00", "type": "flight", "icon": "✈️", "title": "인천공항 출발",
+          "location": "인천", "cost": 0, "notes": "2시간 전 도착"
+        },
+        {
+          "time": "13:00", "type": "food", "icon": "🍜", "title": "이치란 라멘",
+          "location": "도톤보리", "cost": 12000, "notes": "줄 서기 20분 예상",
+          "detail": {
+            "description": "오사카 대표 라멘 거리에서 현지 인기 라멘 맛보기",
+            "options": [
+              {"name": "이치란 라멘 도톤보리점", "category": "라멘", "priceRange": "890~1290엔 (약 8,000~12,000원)", "rating": 4.5, "highlights": ["24시간 영업", "1인석 특화"], "reason": "개인 부스에서 편하게 식사 가능"},
+              {"name": "킨류 라멘", "category": "라멘", "priceRange": "약 8,000원", "rating": 4.3, "highlights": ["도톤보리 랜드마크", "가성비"], "reason": "금용 간판이 유명한 맛집"}
+            ],
+            "tips": ["점심시간 피크 피하기", "쿠폰 자판기로 주문"],
+            "duration": "약 40분",
+            "reservationNeeded": false,
+            "childFriendly": true
+          }
+        }
       ]
     }
   ]
@@ -468,6 +666,7 @@ async function generateWithAI(geminiModel, destination, duration, travelers, bud
 type 종류: flight, transport, hotel, food, activity, shopping
 icon은 적절한 이모지를 사용하세요.
 cost는 원화 숫자만 (숫자만, 단위 없이).
+food/activity/hotel 슬롯에는 반드시 detail 필드를 포함하세요.
 반드시 유효한 JSON만 응답하세요.`;
 
     const result = await geminiModel.generateContent(prompt);

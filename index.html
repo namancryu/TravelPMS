@@ -1666,10 +1666,178 @@
       );
     }
 
+    // ─── 슬롯 상세 모달 ──────────────────────────────────
+    function SlotDetailModal({ slot, destName, isOpen, onClose }) {
+      if (!isOpen || !slot || !slot.detail) return null;
+      const detail = slot.detail;
+
+      const typeColors = {
+        food: { bg: 'bg-orange-50', accent: 'text-orange-600', badge: 'bg-orange-100 text-orange-700' },
+        activity: { bg: 'bg-green-50', accent: 'text-green-600', badge: 'bg-green-100 text-green-700' },
+        hotel: { bg: 'bg-purple-50', accent: 'text-purple-600', badge: 'bg-purple-100 text-purple-700' },
+        shopping: { bg: 'bg-pink-50', accent: 'text-pink-600', badge: 'bg-pink-100 text-pink-700' }
+      };
+      const colors = typeColors[slot.type] || { bg: 'bg-gray-50', accent: 'text-gray-600', badge: 'bg-gray-100 text-gray-700' };
+
+      const renderStars = (rating) => {
+        if (!rating) return null;
+        const full = Math.floor(rating);
+        const half = rating % 1 >= 0.5;
+        return (
+          <span className="text-yellow-500 text-xs">
+            {'★'.repeat(full)}{half ? '½' : ''}
+            <span className="text-gray-300">{'★'.repeat(5 - full - (half ? 1 : 0))}</span>
+            <span className="text-gray-500 ml-1">{rating}</span>
+          </span>
+        );
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+          {/* 배경 오버레이 */}
+          <div className="absolute inset-0 bg-black/50 transition-opacity"></div>
+          {/* 모달 본체 - 바텀시트 (모바일) / 센터 모달 (데스크톱) */}
+          <div className="relative w-full sm:max-w-lg bg-white sm:rounded-2xl rounded-t-2xl max-h-[90vh] overflow-hidden flex flex-col slide-up-modal"
+               onClick={(e) => e.stopPropagation()}>
+            {/* 모바일 핸들 */}
+            <div className="sm:hidden flex justify-center pt-2 pb-1">
+              <div className="w-10 h-1 bg-gray-300 rounded-full"></div>
+            </div>
+
+            {/* 헤더 */}
+            <div className={`px-5 py-4 ${colors.bg} border-b border-gray-100`}>
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">{slot.icon}</span>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base">{slot.title}</h3>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-gray-500">{slot.time}</span>
+                      <span className="text-xs text-gray-400">·</span>
+                      <span className="text-xs text-gray-500">📍 {slot.location}</span>
+                    </div>
+                  </div>
+                </div>
+                <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">✕</button>
+              </div>
+              {slot.cost > 0 && (
+                <div className="mt-2">
+                  <span className={`text-sm font-bold ${colors.accent}`}>💰 {slot.cost.toLocaleString()}원</span>
+                </div>
+              )}
+            </div>
+
+            {/* 스크롤 콘텐츠 */}
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              {/* 설명 */}
+              {detail.description && (
+                <p className="text-sm text-gray-700 leading-relaxed">{detail.description}</p>
+              )}
+
+              {/* 배지 (소요시간, 예약필요, 아이동반) */}
+              <div className="flex flex-wrap gap-2">
+                {detail.duration && (
+                  <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">⏱ {detail.duration}</span>
+                )}
+                {detail.reservationNeeded && (
+                  <span className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 px-2 py-1 rounded-full">📞 예약 필요</span>
+                )}
+                {detail.reservationNeeded === false && (
+                  <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">🚶 예약 불필요</span>
+                )}
+                {detail.childFriendly === true && (
+                  <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-600 px-2 py-1 rounded-full">👶 아이 동반 OK</span>
+                )}
+                {detail.childFriendly === false && (
+                  <span className="inline-flex items-center gap-1 text-xs bg-yellow-50 text-yellow-600 px-2 py-1 rounded-full">⚠️ 아이 비추천</span>
+                )}
+              </div>
+
+              {/* 추천 선택지 */}
+              {detail.options && detail.options.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">✨ 추천 {detail.options.length}곳</h4>
+                  <div className="space-y-2.5">
+                    {detail.options.map((opt, idx) => (
+                      <div key={idx} className="bg-white border border-gray-200 rounded-xl p-3 hover:shadow-sm transition-shadow">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm text-gray-900">{idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'} {opt.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              {opt.category && <span className={`text-[10px] px-1.5 py-0.5 rounded ${colors.badge}`}>{opt.category}</span>}
+                              {renderStars(opt.rating)}
+                            </div>
+                          </div>
+                          {opt.priceRange && (
+                            <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{opt.priceRange}</span>
+                          )}
+                        </div>
+                        {/* 하이라이트 태그 */}
+                        {opt.highlights && opt.highlights.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {opt.highlights.map((h, hi) => (
+                              <span key={hi} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">{h}</span>
+                            ))}
+                          </div>
+                        )}
+                        {/* 추천 사유 */}
+                        {opt.reason && (
+                          <p className="text-xs text-gray-500 mt-1.5 leading-relaxed">💡 {opt.reason}</p>
+                        )}
+                        {/* 지도 링크 */}
+                        {opt.mapQuery && (
+                          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(opt.mapQuery)}`}
+                             target="_blank" rel="noopener noreferrer"
+                             className="inline-flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 mt-1.5">
+                            📍 지도에서 보기
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 실용 팁 */}
+              {detail.tips && detail.tips.length > 0 && (
+                <div className="bg-amber-50 rounded-xl p-3">
+                  <h4 className="text-xs font-bold text-amber-700 mb-1.5">💡 실용 팁</h4>
+                  <ul className="space-y-1">
+                    {detail.tips.map((tip, ti) => (
+                      <li key={ti} className="text-xs text-amber-800 flex items-start gap-1.5">
+                        <span className="text-amber-500 mt-0.5">•</span>{tip}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* 하단 버튼 */}
+            <div className="px-5 py-3 border-t border-gray-100 flex gap-2 bg-white">
+              <a href={`https://www.google.com/search?q=${encodeURIComponent(slot.title + ' ' + (destName || slot.location))}`}
+                 target="_blank" rel="noopener noreferrer"
+                 className="flex-1 text-center py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
+                🔍 Google 검색
+              </a>
+              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(slot.title + ' ' + (destName || slot.location))}`}
+                 target="_blank" rel="noopener noreferrer"
+                 className="flex-1 text-center py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
+                🗺️ 지도 보기
+              </a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ─── 일정표 탭 ───────────────────────────────────────
     function ItineraryTab({ itinerary, state, dispatch }) {
       const [activeDay, setActiveDay] = useState(1);
       const [regenerating, setRegenerating] = useState(false);
+      const [selectedSlot, setSelectedSlot] = useState(null);
 
       if (!itinerary) {
         return (
@@ -1840,17 +2008,20 @@
               const isSpecificPlace = slot.title && !genericWords.some(w => slot.title === w || slot.title === `${w} 식사`)
                 && !['meal', 'flight', 'hotel', 'transport'].includes(slot.type);
               const placeQuery = isSpecificPlace ? encodeURIComponent(slot.title.replace(/방문|투어|관광|구경/g, '') + ' ' + destName) : null;
+              const hasDetail = !!slot.detail;
               return (
                 <div key={i} className="flex gap-3 items-start py-2">
                   <div className="w-12 text-xs font-mono text-gray-500 pt-0.5 flex-shrink-0">{slot.time}</div>
                   <div className="flex-1">
-                    <div className={`rounded-lg border p-2.5 ${colorClass}`}>
+                    <div className={`rounded-lg border p-2.5 ${colorClass} ${hasDetail ? 'cursor-pointer hover:shadow-md transition-shadow ring-0 hover:ring-1 hover:ring-primary-200' : ''}`}
+                         onClick={hasDetail ? () => setSelectedSlot(slot) : undefined}>
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-1.5">
                           <span className="text-base">{slot.icon}</span>
-                          {isSpecificPlace ? (
+                          {isSpecificPlace && !hasDetail ? (
                             <a href={`https://www.google.com/search?q=${placeQuery}`} target="_blank" rel="noopener noreferrer"
-                              className="font-medium text-sm underline decoration-dotted underline-offset-2 hover:text-blue-600">
+                              className="font-medium text-sm underline decoration-dotted underline-offset-2 hover:text-blue-600"
+                              onClick={(e) => e.stopPropagation()}>
                               {slot.title} <span className="text-[10px] no-underline">🔗</span>
                             </a>
                           ) : (
@@ -1864,16 +2035,22 @@
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        {isSpecificPlace ? (
-                          <a href={`https://www.google.com/maps/search/?api=1&query=${placeQuery}`} target="_blank" rel="noopener noreferrer"
-                            className="text-xs opacity-75 hover:opacity-100 hover:text-blue-600">
-                            📍 {slot.location} <span className="text-[10px]">지도</span>
-                          </a>
-                        ) : (
-                          <span className="text-xs opacity-75">📍 {slot.location}</span>
+                      <div className="flex items-center justify-between mt-1">
+                        <div className="flex items-center gap-2">
+                          {isSpecificPlace && !hasDetail ? (
+                            <a href={`https://www.google.com/maps/search/?api=1&query=${placeQuery}`} target="_blank" rel="noopener noreferrer"
+                              className="text-xs opacity-75 hover:opacity-100 hover:text-blue-600"
+                              onClick={(e) => e.stopPropagation()}>
+                              📍 {slot.location} <span className="text-[10px]">지도</span>
+                            </a>
+                          ) : (
+                            <span className="text-xs opacity-75">📍 {slot.location}</span>
+                          )}
+                          {slot.notes && <span className="text-xs opacity-60">· {slot.notes}</span>}
+                        </div>
+                        {hasDetail && (
+                          <span className="text-[10px] text-primary-500 font-medium flex-shrink-0">상세보기 ›</span>
                         )}
-                        {slot.notes && <span className="text-xs opacity-60">· {slot.notes}</span>}
                       </div>
                     </div>
                   </div>
@@ -1889,6 +2066,14 @@
               {regenerating ? '⏳ 생성 중...' : '🤖 AI로 일정 다시 생성'}
             </button>
           </div>
+
+          {/* 슬롯 상세 모달 */}
+          <SlotDetailModal
+            slot={selectedSlot}
+            destName={destName}
+            isOpen={!!selectedSlot}
+            onClose={() => setSelectedSlot(null)}
+          />
         </div>
       );
     }
