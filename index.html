@@ -1062,7 +1062,7 @@
                 </button>
               )}
               <button onClick={() => setShowSettings(true)}
-                className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">
+                className="text-xs bg-yellow-400/40 px-2 py-1 rounded-lg hover:bg-yellow-400/60 font-bold">
                 ⚙️
               </button>
             </div>
@@ -1282,10 +1282,10 @@
                 )}
                 <button onClick={() => dispatch({ type: 'GO_TO_SCREEN', payload: STAGES.PROJECTS })}
                   className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">📂</button>
+                <button onClick={() => setShowSettings(true)}
+                  className="text-xs bg-yellow-400/40 px-2 py-1 rounded-lg hover:bg-yellow-400/60 font-bold">⚙️</button>
                 <button onClick={() => dispatch({ type: 'GO_TO_SCREEN', payload: STAGES.CONSULTING })}
                   className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">💬</button>
-                <button onClick={() => setShowSettings(true)}
-                  className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">⚙️</button>
                 <button onClick={() => { if(confirm('새 여행을 계획할까요?')) dispatch({ type: 'RESET' }); }}
                   className="text-xs bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30">🔄</button>
               </div>
@@ -1541,7 +1541,7 @@
                   '크라비': 6, '푸켓': 6, '치앙마이': 5.5, '코사무이': 6,
                   '쿠알라룸푸르': 6.5, '랑카위': 6.5, '코타키나발루': 5.5,
                   '타이베이': 2.5, '홍콩': 3.5, '마카오': 4, '상하이': 2, '베이징': 2,
-                  '괌': 4.5, '사이판': 4.5, '하와이': 9, '호놀룰루': 9,
+                  '괌': 4.5, '사이판': 4.5, '하와이': 9, '호놀룰루': 9, '오아후': 9, '마우이': 9.5, '빅아일랜드': 9.5,
                   '뉴욕': 14, 'LA': 12, '로스앤젤레스': 12, '샌프란시스코': 11.5, '라스베가스': 12, '시카고': 13, '칸쿤': 17, '밴쿠버': 10.5, '토론토': 13.5,
                   '파리': 12, '런던': 12, '로마': 11.5, '바르셀로나': 12, '마드리드': 13,
                   '프라하': 11.5, '빈': 11.5, '취리히': 12, '암스테르담': 11.5, '뮌헨': 11.5,
@@ -2808,7 +2808,7 @@
         '방콕': 5.5, '다낭': 4.5, '호치민': 5.5, '나트랑': 5,
         '싱가포르': 6.5, '발리': 7, '세부': 4.5,
         '타이베이': 2.5, '홍콩': 3.5,
-        '괌': 4.5, '사이판': 4.5, '하와이': 9,
+        '괌': 4.5, '사이판': 4.5, '하와이': 9, '오아후': 9, '호놀룰루': 9, '마우이': 9.5,
         '파리': 12, '런던': 12, '로마': 11.5, '바르셀로나': 12,
         '이스탄불': 11,
         '뉴욕': 14, 'LA': 12,
