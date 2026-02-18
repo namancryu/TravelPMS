@@ -353,9 +353,9 @@ const legacyDestinations = [
 /**
  * 모든 목적지 조회 (DB 우선, 폴백: 하드코딩)
  */
-function getAllDestinations() {
+async function getAllDestinations() {
   try {
-    return dao.getAllDestinations();
+    return await dao.getAllDestinations();
   } catch (err) {
     console.warn('⚠️ DB 조회 실패, 레거시 데이터 사용:', err.message);
     return legacyDestinations;
@@ -365,9 +365,9 @@ function getAllDestinations() {
 /**
  * ID로 목적지 조회
  */
-function getDestinationById(id) {
+async function getDestinationById(id) {
   try {
-    return dao.getDestinationById(id);
+    return await dao.getDestinationById(id);
   } catch (err) {
     console.warn('⚠️ DB 조회 실패, 레거시 데이터 사용');
     return legacyDestinations.find(d => d.id === id);
@@ -377,9 +377,9 @@ function getDestinationById(id) {
 /**
  * 이름으로 목적지 조회
  */
-function getDestinationByName(name) {
+async function getDestinationByName(name) {
   try {
-    return dao.getDestinationByName(name);
+    return await dao.getDestinationByName(name);
   } catch (err) {
     console.warn('⚠️ DB 조회 실패, 레거시 데이터 사용');
     return legacyDestinations.find(d => d.name === name);
@@ -389,12 +389,11 @@ function getDestinationByName(name) {
 /**
  * 조건 검색
  */
-function findDestinations(criteria) {
+async function findDestinations(criteria) {
   try {
-    return dao.findDestinations(criteria);
+    return await dao.findDestinations(criteria);
   } catch (err) {
     console.warn('⚠️ DB 조회 실패, 레거시 로직 사용');
-    // 레거시 폴백
     return legacyDestinations.filter(dest => {
       let score = 0;
       if (criteria.styles) {
@@ -422,7 +421,7 @@ function findDestinations(criteria) {
  * @param {Object} options - { includePlaces: true, includePOI: false }
  */
 async function getEnrichedDestination(id, options = {}) {
-  const dest = getDestinationById(id);
+  const dest = await getDestinationById(id);
   if (!dest) return null;
 
   return await enrichDestinationData(dest, options);

@@ -1,25 +1,32 @@
 /**
- * Database Initialization
- * SQLite 데이터베이스 스키마 생성
+ * Database Initialization - PostgreSQL
+ * DATABASE_URL 환경변수로 연결, 없으면 SQLite 폴백
  */
 
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const { Pool } = require('pg');
 
-const DB_PATH = path.join(__dirname, '../../data/destinations.db');
+let pool = null;
 
-// data 디렉토리 자동 생성
-const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+function getPool() {
+  if (!pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error('DATABASE_URL 환경변수가 설정되지 않았습니다');
+    }
+    pool = new Pool({
+      connectionString,
+      ssl: { rejectUnauthorized: false },
+      max: 5,
+      idleTimeoutMillis: 30000
+    });
+  }
+  return pool;
 }
 
-function initDatabase() {
-  const db = new Database(DB_PATH);
+async function initDatabase() {
+  const p = getPool();
 
-  // 스키마 생성
-  db.exec(`
+  await p.query(`
     CREATE TABLE IF NOT EXISTS destinations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -37,7 +44,7 @@ function initDatabase() {
       description TEXT,
       highlights TEXT,
       sample_itinerary TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS projects (
@@ -55,21 +62,14 @@ function initDatabase() {
       itinerary TEXT,
       consulting_context TEXT,
       recommendations TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      departure TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE INDEX IF NOT EXISTS idx_country ON destinations(country);
-    CREATE INDEX IF NOT EXISTS idx_rating ON destinations(rating);
-    CREATE INDEX IF NOT EXISTS idx_avg_cost ON destinations(avg_cost);
-    CREATE INDEX IF NOT EXISTS idx_flight_time ON destinations(flight_time);
-    CREATE INDEX IF NOT EXISTS idx_project_created ON projects(created_at);
-    CREATE INDEX IF NOT EXISTS idx_project_destination ON projects(destination_id);
-
-    -- 거래 내역 테이블
     CREATE TABLE IF NOT EXISTS budget_transactions (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       category TEXT NOT NULL,
       amount REAL NOT NULL,
       currency TEXT DEFAULT 'KRW',
@@ -81,16 +81,14 @@ function initDatabase() {
       booking_ref TEXT,
       booking_url TEXT,
       receipt_id TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- 영수증 파일 테이블
     CREATE TABLE IF NOT EXISTS receipt_files (
       id TEXT PRIMARY KEY,
       transaction_id TEXT,
-      project_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       filename TEXT NOT NULL,
       filepath TEXT NOT NULL,
       filesize INTEGER NOT NULL,
@@ -99,33 +97,41 @@ function initDatabase() {
       ocr_date TEXT,
       ocr_raw_text TEXT,
       ocr_status TEXT DEFAULT 'pending',
-      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- AI 추천 캐시 테이블
     CREATE TABLE IF NOT EXISTS budget_recommendations (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       category TEXT NOT NULL,
       recommendations TEXT NOT NULL,
       cache_key TEXT NOT NULL,
       ai_provider TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      expires_at DATETIME,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      expires_at TIMESTAMP
     );
-
-    CREATE INDEX IF NOT EXISTS idx_transactions_project ON budget_transactions(project_id);
-    CREATE INDEX IF NOT EXISTS idx_transactions_category ON budget_transactions(category);
-    CREATE INDEX IF NOT EXISTS idx_receipts_transaction ON receipt_files(transaction_id);
-    CREATE INDEX IF NOT EXISTS idx_receipts_project ON receipt_files(project_id);
-    CREATE INDEX IF NOT EXISTS idx_recommendations_cache ON budget_recommendations(cache_key);
-    CREATE INDEX IF NOT EXISTS idx_recommendations_project ON budget_recommendations(project_id);
   `);
 
-  console.log('✅ Database schema initialized (3 new tables: budget_transactions, receipt_files, budget_recommendations)');
-  return db;
+  // 인덱스 (이미 존재하면 무시)
+  const indexes = [
+    'CREATE INDEX IF NOT EXISTS idx_country ON destinations(country)',
+    'CREATE INDEX IF NOT EXISTS idx_rating ON destinations(rating)',
+    'CREATE INDEX IF NOT EXISTS idx_avg_cost ON destinations(avg_cost)',
+    'CREATE INDEX IF NOT EXISTS idx_project_created ON projects(created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_project_destination ON projects(destination_id)',
+    'CREATE INDEX IF NOT EXISTS idx_transactions_project ON budget_transactions(project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_transactions_category ON budget_transactions(category)',
+    'CREATE INDEX IF NOT EXISTS idx_receipts_project ON receipt_files(project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_recommendations_project ON budget_recommendations(project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_recommendations_cache ON budget_recommendations(cache_key)'
+  ];
+
+  for (const idx of indexes) {
+    await p.query(idx);
+  }
+
+  console.log('✅ PostgreSQL schema initialized');
+  return p;
 }
 
-module.exports = { initDatabase, DB_PATH };
+module.exports = { initDatabase, getPool };

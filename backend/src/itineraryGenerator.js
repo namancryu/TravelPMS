@@ -206,9 +206,9 @@ const itineraryTemplates = {
 // 기본 일정 패턴 (DB에 없는 목적지용)
 const defaultDayPatterns = ['arrival', 'culture', 'shopping', 'departure'];
 
-function generateMockItinerary(destination, duration, travelers, budget, startDateStr) {
+async function generateMockItinerary(destination, duration, travelers, budget, startDateStr) {
   let dest = typeof destination === 'string'
-    ? getDestinationById(destination) || getDestinationByName(destination)
+    ? (await getDestinationById(destination)) || (await getDestinationByName(destination))
     : destination;
 
   // DB에 없는 목적지인 경우 기본 정보로 생성
@@ -419,7 +419,7 @@ function generateGenericSlots(dest, dayIdx, totalDays) {
 
 async function generateWithAI(geminiModel, destination, duration, travelers, budget, context, startDateStr) {
   let dest = typeof destination === 'string'
-    ? getDestinationById(destination) || getDestinationByName(destination)
+    ? (await getDestinationById(destination)) || (await getDestinationByName(destination))
     : destination;
 
   // DB에 없는 목적지 (AI 추천)인 경우, context에서 정보를 가져오거나 기본값 생성

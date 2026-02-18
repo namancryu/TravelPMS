@@ -307,7 +307,7 @@ function determineNextState(session) {
   return STATES.GREETING;
 }
 
-function generateMockResponse(session, userMessage) {
+async function generateMockResponse(session, userMessage) {
   const ctx = session.context;
   const state = session.state;
   const lower = userMessage.toLowerCase();
@@ -325,7 +325,7 @@ function generateMockResponse(session, userMessage) {
 
   // ─── RECOMMENDING: 추천 ────────────────────────────
   if (state === STATES.RECOMMENDING) {
-    const recs = generateMockRecommendations(ctx);
+    const recs = await generateMockRecommendations(ctx);
     session.recommendations = recs;
 
     // 컨텍스트에 맞는 추천 멘트
@@ -526,7 +526,7 @@ function calculateEstimatedCost(baseCost, travelers) {
   return Math.round(baseCost * multiplier);
 }
 
-function generateMockRecommendations(context) {
+async function generateMockRecommendations(context) {
   // 키워드에서 국가/도시명 추출
   const keywords = context.keywords || [];
   const keywordStr = keywords.join(' ').toLowerCase();
@@ -635,7 +635,7 @@ function generateMockRecommendations(context) {
     flightTime: context.flightTime
   };
 
-  const matched = findDestinations(criteria).slice(0, 5);
+  const matched = (await findDestinations(criteria)).slice(0, 5);
   const top3 = matched.length >= 3 ? matched.slice(0, 3) : [...matched, ...destinations.slice(0, 3 - matched.length)];
 
   // 예산 제약 적용
@@ -720,7 +720,7 @@ async function processMessage(sessionId, userMessage, userSettings) {
     } catch (err) {
       console.error('Claude.ai Python 세션 에러:', err);
       // 실패 시 폴백
-      responseText = generateMockResponse(session, userMessage);
+      responseText = await generateMockResponse(session, userMessage);
     }
   } else {
     // Multi AI Provider 사용 (Groq → Gemini → Together → Mock)
@@ -790,14 +790,14 @@ async function processMessage(sessionId, userMessage, userSettings) {
         // RECOMMENDING 상태인데 AI가 추천 JSON을 반환하지 않은 경우 mock 추천으로 보완
         if (session.state === STATES.RECOMMENDING && !recommendations) {
           console.log(`⚠️ ${usedProvider} didn't return recommendations, using Mock mode`);
-          generateMockResponse(session, userMessage);
+          await generateMockResponse(session, userMessage);
           recommendations = session.recommendations;
           usedProvider = 'mock';
         }
       } else {
         // 모든 AI Provider 실패, Mock 모드 사용
         console.log('⚠️ All AI providers failed, using Mock mode');
-        responseText = generateMockResponse(session, userMessage);
+        responseText = await generateMockResponse(session, userMessage);
         if (session.state === STATES.RECOMMENDING) {
           recommendations = session.recommendations;
         }
@@ -805,7 +805,7 @@ async function processMessage(sessionId, userMessage, userSettings) {
       }
     } catch (err) {
       console.error('AI Provider error:', err.message);
-      responseText = generateMockResponse(session, userMessage);
+      responseText = await generateMockResponse(session, userMessage);
       if (session.state === STATES.RECOMMENDING) {
         recommendations = session.recommendations;
       }

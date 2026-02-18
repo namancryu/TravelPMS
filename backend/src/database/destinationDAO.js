@@ -1,167 +1,110 @@
 /**
- * Destination Data Access Object (DAO)
- * SQLite 조회 로직 + 외부 API 연동 준비
+ * Destination Data Access Object - PostgreSQL
  */
 
-const Database = require('better-sqlite3');
-const { DB_PATH } = require('./init');
+const { getPool } = require('./init');
 
-let db = null;
-
-function getDB() {
-  if (!db) {
-    db = new Database(DB_PATH);
-  }
-  return db;
-}
-
-/**
- * 모든 목적지 조회
- */
-function getAllDestinations() {
-  const dbInstance = getDB();
-  const rows = dbInstance.prepare('SELECT * FROM destinations ORDER BY rating DESC').all();
+async function getAllDestinations() {
+  const pool = getPool();
+  const { rows } = await pool.query('SELECT * FROM destinations ORDER BY rating DESC');
   return rows.map(parseDestination);
 }
 
-/**
- * ID로 목적지 조회
- */
-function getDestinationById(id) {
-  const dbInstance = getDB();
-  const row = dbInstance.prepare('SELECT * FROM destinations WHERE id = ?').get(id);
-  return row ? parseDestination(row) : null;
+async function getDestinationById(id) {
+  const pool = getPool();
+  const { rows } = await pool.query('SELECT * FROM destinations WHERE id = $1', [id]);
+  return rows.length > 0 ? parseDestination(rows[0]) : null;
 }
 
-/**
- * 이름으로 목적지 조회 (정확한 매칭 또는 부분 매칭)
- */
-function getDestinationByName(name) {
-  const dbInstance = getDB();
-  // 정확한 매칭 시도
-  let row = dbInstance.prepare('SELECT * FROM destinations WHERE name = ?').get(name);
-  if (row) return parseDestination(row);
+async function getDestinationByName(name) {
+  const pool = getPool();
+  // 정확한 매칭
+  let { rows } = await pool.query('SELECT * FROM destinations WHERE name = $1', [name]);
+  if (rows.length > 0) return parseDestination(rows[0]);
 
-  // 부분 매칭 시도 (이름에 포함되거나 ID에 포함)
-  row = dbInstance.prepare('SELECT * FROM destinations WHERE name LIKE ? OR id LIKE ? ORDER BY rating DESC LIMIT 1').get(`%${name}%`, `%${name}%`);
-  return row ? parseDestination(row) : null;
+  // 부분 매칭
+  ({ rows } = await pool.query(
+    'SELECT * FROM destinations WHERE name LIKE $1 OR id LIKE $1 ORDER BY rating DESC LIMIT 1',
+    [`%${name}%`]
+  ));
+  return rows.length > 0 ? parseDestination(rows[0]) : null;
 }
 
-/**
- * 조건에 맞는 목적지 검색
- * @param {Object} criteria - { styles: [], budget: '', travelers: '', flightTime: '' }
- */
-function findDestinations(criteria) {
-  const dbInstance = getDB();
+async function findDestinations(criteria) {
+  const pool = getPool();
   let query = 'SELECT * FROM destinations WHERE 1=1';
   const params = [];
+  let paramIdx = 1;
 
-  // 예산 필터
   if (criteria.budget) {
-    query += ` AND budget_range LIKE ?`;
+    query += ` AND budget_range LIKE $${paramIdx++}`;
     params.push(`%"${criteria.budget}"%`);
   }
-
-  // 비행시간 필터
   if (criteria.flightTime) {
-    query += ` AND flight_time = ?`;
+    query += ` AND flight_time = $${paramIdx++}`;
     params.push(criteria.flightTime);
   }
-
-  // 여행자 타입 필터
   if (criteria.travelers) {
-    query += ` AND best_for LIKE ?`;
+    query += ` AND best_for LIKE $${paramIdx++}`;
     params.push(`%"${criteria.travelers}"%`);
   }
-
-  // 스타일 필터 (여러 개 매칭)
   if (criteria.styles && criteria.styles.length > 0) {
-    const styleConditions = criteria.styles.map(() => 'styles LIKE ?').join(' OR ');
-    query += ` AND (${styleConditions})`;
+    const conditions = criteria.styles.map(() => `styles LIKE $${paramIdx++}`).join(' OR ');
+    query += ` AND (${conditions})`;
     criteria.styles.forEach(style => params.push(`%"${style}"%`));
   }
 
   query += ' ORDER BY rating DESC LIMIT 20';
-
-  const rows = dbInstance.prepare(query).all(...params);
+  const { rows } = await pool.query(query, params);
   return rows.map(parseDestination);
 }
 
-/**
- * 국가별 목적지 조회
- */
-function getDestinationsByCountry(country) {
-  const dbInstance = getDB();
-  const rows = dbInstance.prepare('SELECT * FROM destinations WHERE country = ? ORDER BY rating DESC').all(country);
+async function getDestinationsByCountry(country) {
+  const pool = getPool();
+  const { rows } = await pool.query('SELECT * FROM destinations WHERE country = $1 ORDER BY rating DESC', [country]);
   return rows.map(parseDestination);
 }
 
-/**
- * 평점 높은 목적지 Top N
- */
-function getTopRatedDestinations(limit = 10) {
-  const dbInstance = getDB();
-  const rows = dbInstance.prepare('SELECT * FROM destinations ORDER BY rating DESC LIMIT ?').all(limit);
+async function getTopRatedDestinations(limit = 10) {
+  const pool = getPool();
+  const { rows } = await pool.query('SELECT * FROM destinations ORDER BY rating DESC LIMIT $1', [limit]);
   return rows.map(parseDestination);
 }
 
-/**
- * 가격대별 목적지 조회
- */
-function getDestinationsByBudget(minCost, maxCost) {
-  const dbInstance = getDB();
-  const rows = dbInstance.prepare(
-    'SELECT * FROM destinations WHERE avg_cost BETWEEN ? AND ? ORDER BY avg_cost ASC'
-  ).all(minCost, maxCost);
+async function getDestinationsByBudget(minCost, maxCost) {
+  const pool = getPool();
+  const { rows } = await pool.query(
+    'SELECT * FROM destinations WHERE avg_cost BETWEEN $1 AND $2 ORDER BY avg_cost ASC',
+    [minCost, maxCost]
+  );
   return rows.map(parseDestination);
 }
 
-/**
- * 검색어로 목적지 찾기 (이름, 국가, 설명)
- */
-function searchDestinations(keyword) {
-  const dbInstance = getDB();
+async function searchDestinations(keyword) {
+  const pool = getPool();
   const pattern = `%${keyword}%`;
-  const rows = dbInstance.prepare(`
-    SELECT * FROM destinations
-    WHERE name LIKE ? OR country LIKE ? OR description LIKE ?
-    ORDER BY rating DESC
-    LIMIT 20
-  `).all(pattern, pattern, pattern);
+  const { rows } = await pool.query(
+    'SELECT * FROM destinations WHERE name LIKE $1 OR country LIKE $1 OR description LIKE $1 ORDER BY rating DESC LIMIT 20',
+    [pattern]
+  );
   return rows.map(parseDestination);
 }
 
-/**
- * DB 행 데이터를 JavaScript 객체로 변환
- */
 function parseDestination(row) {
+  const safeJSON = (val) => { try { return val ? JSON.parse(val) : null; } catch { return val; } };
   return {
-    id: row.id,
-    name: row.name,
-    country: row.country,
-    flag: row.flag,
-    styles: JSON.parse(row.styles),
-    budgetRange: JSON.parse(row.budget_range),
-    bestFor: JSON.parse(row.best_for),
-    flightTime: row.flight_time,
-    avgCost: row.avg_cost,
-    rating: row.rating,
-    bestSeason: row.best_season,
-    pros: JSON.parse(row.pros),
-    cons: JSON.parse(row.cons),
-    description: row.description,
-    highlights: JSON.parse(row.highlights),
-    sampleItinerary: JSON.parse(row.sample_itinerary)
+    id: row.id, name: row.name, country: row.country, flag: row.flag,
+    styles: safeJSON(row.styles), budgetRange: safeJSON(row.budget_range),
+    bestFor: safeJSON(row.best_for), flightTime: row.flight_time,
+    avgCost: row.avg_cost, rating: row.rating, bestSeason: row.best_season,
+    pros: safeJSON(row.pros), cons: safeJSON(row.cons),
+    description: row.description, highlights: safeJSON(row.highlights),
+    sampleItinerary: safeJSON(row.sample_itinerary)
   };
 }
 
 module.exports = {
-  getAllDestinations,
-  getDestinationById,
-  getDestinationByName,
-  findDestinations,
-  getDestinationsByCountry,
-  getTopRatedDestinations,
-  getDestinationsByBudget,
-  searchDestinations
+  getAllDestinations, getDestinationById, getDestinationByName,
+  findDestinations, getDestinationsByCountry, getTopRatedDestinations,
+  getDestinationsByBudget, searchDestinations
 };

@@ -1,58 +1,53 @@
 /**
- * Database Seed Script
+ * Database Seed Script - PostgreSQL
  * 105개 여행지 데이터 삽입
  */
 
-const { initDatabase } = require('./init');
+const { getPool } = require('./init');
 const destinationsData = require('./seedData');
 
-function seedDatabase() {
-  const db = initDatabase();
+async function seedDatabase() {
+  const pool = getPool();
 
   // 기존 데이터 확인
-  const count = db.prepare('SELECT COUNT(*) as count FROM destinations').get();
+  const { rows } = await pool.query('SELECT COUNT(*) as count FROM destinations');
+  const count = parseInt(rows[0].count);
 
-  if (count.count > 0) {
-    console.log(`⚠️ Database already has ${count.count} destinations. Skipping seed.`);
-    console.log('   To re-seed, delete backend/data/destinations.db and restart server.');
-    return db;
+  if (count > 0) {
+    console.log(`⚠️ Database already has ${count} destinations. Skipping seed.`);
+    return;
   }
 
   // 데이터 삽입
-  const insert = db.prepare(`
-    INSERT INTO destinations (
-      id, name, country, flag, styles, budget_range, best_for,
-      flight_time, avg_cost, rating, best_season, pros, cons,
-      description, highlights, sample_itinerary
-    ) VALUES (
-      @id, @name, @country, @flag, @styles, @budgetRange, @bestFor,
-      @flightTime, @avgCost, @rating, @bestSeason, @pros, @cons,
-      @description, @highlights, @sampleItinerary
-    )
-  `);
-
-  const insertMany = db.transaction((destinations) => {
-    for (const dest of destinations) {
-      insert.run(dest);
-    }
-  });
-
+  const client = await pool.connect();
   try {
-    insertMany(destinationsData);
+    await client.query('BEGIN');
+
+    for (const dest of destinationsData) {
+      await client.query(`
+        INSERT INTO destinations (
+          id, name, country, flag, styles, budget_range, best_for,
+          flight_time, avg_cost, rating, best_season, pros, cons,
+          description, highlights, sample_itinerary
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (id) DO NOTHING
+      `, [
+        dest.id, dest.name, dest.country, dest.flag,
+        dest.styles, dest.budgetRange, dest.bestFor,
+        dest.flightTime, dest.avgCost, dest.rating, dest.bestSeason,
+        dest.pros, dest.cons, dest.description, dest.highlights, dest.sampleItinerary
+      ]);
+    }
+
+    await client.query('COMMIT');
     console.log(`✅ Successfully seeded ${destinationsData.length} destinations`);
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('❌ Seed error:', err);
     throw err;
+  } finally {
+    client.release();
   }
-
-  return db;
-}
-
-// CLI로 직접 실행 시
-if (require.main === module) {
-  seedDatabase();
-  console.log('✅ Seed completed!');
-  process.exit(0);
 }
 
 module.exports = { seedDatabase };

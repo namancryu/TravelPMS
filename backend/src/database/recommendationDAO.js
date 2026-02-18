@@ -1,148 +1,64 @@
 /**
- * Budget Recommendation Data Access Object
- * AI 추천 캐싱 로직
+ * Budget Recommendation Data Access Object - PostgreSQL
  */
 
 const { v4: uuidv4 } = require('uuid');
 
-/**
- * 추천 저장 (캐싱)
- */
-function saveRecommendation(db, recommendationData) {
-  const {
-    projectId,
-    category,
-    recommendations,
-    cacheKey,
-    aiProvider = 'gemini',
-    ttlHours = 24
-  } = recommendationData;
-
+async function saveRecommendation(pool, recommendationData) {
+  const { projectId, category, recommendations, cacheKey, aiProvider = 'gemini', ttlHours = 24 } = recommendationData;
   const id = uuidv4();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
 
-  const stmt = db.prepare(`
-    INSERT INTO budget_recommendations (
-      id, project_id, category, recommendations,
-      cache_key, ai_provider, created_at, expires_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  await pool.query(`
+    INSERT INTO budget_recommendations (id, project_id, category, recommendations, cache_key, ai_provider, created_at, expires_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+  `, [id, projectId, category, JSON.stringify(recommendations), cacheKey, aiProvider, now.toISOString(), expiresAt.toISOString()]);
 
-  stmt.run(
-    id,
-    projectId,
-    category,
-    JSON.stringify(recommendations),
-    cacheKey,
-    aiProvider,
-    now.toISOString(),
-    expiresAt.toISOString()
+  return getRecommendation(pool, id);
+}
+
+async function getRecommendation(pool, recommendationId) {
+  const { rows } = await pool.query('SELECT * FROM budget_recommendations WHERE id = $1', [recommendationId]);
+  if (rows[0] && rows[0].recommendations) rows[0].recommendations = JSON.parse(rows[0].recommendations);
+  return rows[0] || null;
+}
+
+async function getRecommendationByCache(pool, cacheKey) {
+  const { rows } = await pool.query(
+    'SELECT * FROM budget_recommendations WHERE cache_key = $1 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
+    [cacheKey]
   );
-
-  return getRecommendation(db, id);
+  if (rows[0] && rows[0].recommendations) rows[0].recommendations = JSON.parse(rows[0].recommendations);
+  return rows[0] || null;
 }
 
-/**
- * 추천 조회 (단일)
- */
-function getRecommendation(db, recommendationId) {
-  const stmt = db.prepare('SELECT * FROM budget_recommendations WHERE id = ?');
-  const row = stmt.get(recommendationId);
-
-  if (row && row.recommendations) {
-    row.recommendations = JSON.parse(row.recommendations);
-  }
-
-  return row;
-}
-
-/**
- * 캐시 조회 (캐시 키로)
- */
-function getRecommendationByCache(db, cacheKey) {
-  const stmt = db.prepare(`
-    SELECT * FROM budget_recommendations
-    WHERE cache_key = ?
-    AND datetime(expires_at) > datetime('now')
-    ORDER BY created_at DESC
-    LIMIT 1
-  `);
-
-  const row = stmt.get(cacheKey);
-
-  if (row && row.recommendations) {
-    row.recommendations = JSON.parse(row.recommendations);
-  }
-
-  return row;
-}
-
-/**
- * 프로젝트별 추천 목록 조회
- */
-function getRecommendationsByProject(db, projectId, category = null) {
-  let query = `
-    SELECT * FROM budget_recommendations
-    WHERE project_id = ?
-    AND datetime(expires_at) > datetime('now')
-  `;
+async function getRecommendationsByProject(pool, projectId, category = null) {
+  let query = 'SELECT * FROM budget_recommendations WHERE project_id = $1 AND expires_at > NOW()';
   const params = [projectId];
-
-  if (category) {
-    query += ' AND category = ?';
-    params.push(category);
-  }
-
+  if (category) { query += ' AND category = $2'; params.push(category); }
   query += ' ORDER BY created_at DESC';
 
-  const stmt = db.prepare(query);
-  const rows = stmt.all(...params);
-
-  return rows.map(row => {
-    if (row.recommendations) {
-      row.recommendations = JSON.parse(row.recommendations);
-    }
-    return row;
-  });
+  const { rows } = await pool.query(query, params);
+  return rows.map(r => { if (r.recommendations) r.recommendations = JSON.parse(r.recommendations); return r; });
 }
 
-/**
- * 만료된 캐시 삭제
- */
-function deleteExpiredRecommendations(db) {
-  const stmt = db.prepare(`
-    DELETE FROM budget_recommendations
-    WHERE datetime(expires_at) <= datetime('now')
-  `);
-
-  const result = stmt.run();
-  return result.changes;
+async function deleteExpiredRecommendations(pool) {
+  const result = await pool.query('DELETE FROM budget_recommendations WHERE expires_at <= NOW()');
+  return result.rowCount;
 }
 
-/**
- * 추천 삭제
- */
-function deleteRecommendation(db, recommendationId) {
-  const stmt = db.prepare('DELETE FROM budget_recommendations WHERE id = ?');
-  const result = stmt.run(recommendationId);
-  return result.changes > 0;
+async function deleteRecommendation(pool, recommendationId) {
+  const result = await pool.query('DELETE FROM budget_recommendations WHERE id = $1', [recommendationId]);
+  return result.rowCount > 0;
 }
 
-/**
- * 캐시 키 생성
- */
 function generateCacheKey(projectId, category, params = {}) {
   const paramsStr = JSON.stringify(params);
   return `${projectId}_${category}_${Buffer.from(paramsStr).toString('base64').substring(0, 20)}`;
 }
 
 module.exports = {
-  saveRecommendation,
-  getRecommendation,
-  getRecommendationByCache,
-  getRecommendationsByProject,
-  deleteExpiredRecommendations,
-  deleteRecommendation,
-  generateCacheKey
+  saveRecommendation, getRecommendation, getRecommendationByCache,
+  getRecommendationsByProject, deleteExpiredRecommendations, deleteRecommendation, generateCacheKey
 };

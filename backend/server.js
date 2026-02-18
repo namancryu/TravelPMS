@@ -27,8 +27,7 @@ const budgetRecommendationService = require('./src/services/budgetRecommendation
 const budgetAlertService = require('./src/services/budgetAlertService');
 const { getCityCoordinates, getPointsOfInterest } = require('./src/api/externalAPIs');
 const multer = require('multer');
-const Database = require('better-sqlite3');
-const { DB_PATH } = require('./src/database/init');
+const { initDatabase, getPool } = require('./src/database/init');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,13 +73,19 @@ function validateEstimatedCost(cost, country = '') {
 // ========================================
 // 하이브리드 DB 초기화
 // ========================================
-console.log('🔧 Initializing Hybrid Database...');
-try {
-  seedDatabase();
-  console.log('✅ Hybrid Database ready (105 destinations)');
-} catch (err) {
-  console.warn('⚠️ Database initialization failed, using fallback mode:', err.message);
-}
+console.log('🔧 Initializing PostgreSQL Database...');
+// DB 초기화는 서버 시작 시 async로 수행
+let dbReady = false;
+(async () => {
+  try {
+    await initDatabase();
+    await seedDatabase();
+    dbReady = true;
+    console.log('✅ PostgreSQL Database ready (105 destinations)');
+  } catch (err) {
+    console.warn('⚠️ Database initialization failed:', err.message);
+  }
+})();
 
 // Middleware
 app.use(cors({
@@ -213,13 +218,18 @@ app.get('/api/mode', (req, res) => {
 });
 
 // ─── 목적지 목록 ───────────────────────────────────────
-app.get('/api/destinations', (req, res) => {
-  const destinations = getAllDestinations();
-  res.json({
-    destinations,
-    count: destinations.length,
-    mode: 'hybrid'
-  });
+app.get('/api/destinations', async (req, res) => {
+  try {
+    const destinations = await getAllDestinations();
+    res.json({
+      destinations,
+      count: destinations.length,
+      mode: 'hybrid'
+    });
+  } catch (err) {
+    console.error('/api/destinations error:', err);
+    res.status(500).json({ error: '목적지 목록 조회 실패' });
+  }
 });
 
 // ─── 목적지 상세 (외부 API 보강) ───────────────────────
@@ -300,12 +310,12 @@ app.post('/api/itinerary/generate', async (req, res) => {
     if (geminiModel) {
       itinerary = await generateWithAI(geminiModel, destinationId, duration, travelers, budget, enrichedContext, startDate);
     } else {
-      itinerary = generateMockItinerary(destinationId, duration, travelers, budget, startDate);
+      itinerary = await generateMockItinerary(destinationId, duration, travelers, budget, startDate);
     }
 
     // AI 일정도 실패 시 Mock으로 폴백
     if (!itinerary) {
-      itinerary = generateMockItinerary(destinationId, duration, travelers, budget, startDate);
+      itinerary = await generateMockItinerary(destinationId, duration, travelers, budget, startDate);
     }
 
     if (!itinerary) {
@@ -320,11 +330,11 @@ app.post('/api/itinerary/generate', async (req, res) => {
 });
 
 // ─── 프로젝트 생성 ─────────────────────────────────────
-app.post('/api/project/create', (req, res) => {
+app.post('/api/project/create', async (req, res) => {
   try {
     const { destinationId, sessionId, title, dates, travelers, budget, destinationData } = req.body;
     // DB에서 먼저 찾고, 없으면 AI가 생성한 데이터 사용
-    const dest = getDestinationById(destinationId) || (destinationData ? {
+    const dest = (await getDestinationById(destinationId)) || (destinationData ? {
       id: destinationData.id,
       name: destinationData.name || destinationId,
       country: destinationData.country || '',
@@ -430,7 +440,7 @@ app.post('/api/project/create', (req, res) => {
     if (sessionId) selectDestination(sessionId, destinationId);
 
     // DB에 저장
-    projectDAO.createProject(project);
+    await projectDAO.createProject(project);
 
     res.json(project);
   } catch (err) {
@@ -649,14 +659,14 @@ function generateDefaultTasks(dest, travelType) {
 
 // ─── 프로젝트 동기화 API ──────────────────────────────
 // 프로젝트 저장 (서버에 영구 저장)
-app.post('/api/project/save', (req, res) => {
+app.post('/api/project/save', async (req, res) => {
   try {
     const { projectId, project, itinerary } = req.body;
     if (!projectId) return res.status(400).json({ error: 'projectId 필요' });
 
     // DB 업데이트
     const updates = { ...project, itinerary };
-    projectDAO.updateProject(projectId, updates);
+    await projectDAO.updateProject(projectId, updates);
 
     // Socket.io로 같은 프로젝트의 다른 유저에게 알림
     io.to(`project:${projectId}`).emit('project:updated', { project, itinerary, updatedAt: new Date().toISOString() });
@@ -668,8 +678,8 @@ app.post('/api/project/save', (req, res) => {
 });
 
 // 프로젝트 불러오기
-app.get('/api/project/:projectId', (req, res) => {
-  const project = projectDAO.getProjectById(req.params.projectId);
+app.get('/api/project/:projectId', async (req, res) => {
+  const project = await projectDAO.getProjectById(req.params.projectId);
   if (!project) return res.status(404).json({ error: '프로젝트 없음' });
 
   // 기존 API 형식 유지 (project와 itinerary 분리)
@@ -695,16 +705,16 @@ app.get('/api/project/:projectId', (req, res) => {
 });
 
 // 프로젝트 삭제
-app.delete('/api/project/:projectId', (req, res) => {
+app.delete('/api/project/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
-    const exists = projectDAO.getProjectById(projectId);
+    const exists = await projectDAO.getProjectById(projectId);
 
     if (!exists) {
       return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다' });
     }
 
-    projectDAO.deleteProject(projectId);
+    await projectDAO.deleteProject(projectId);
     console.log(`🗑️ 프로젝트 삭제: ${projectId}`);
 
     res.json({ success: true, message: '프로젝트가 삭제되었습니다' });
@@ -715,8 +725,8 @@ app.delete('/api/project/:projectId', (req, res) => {
 });
 
 // 프로젝트 목록 (프로젝트 카드에 필요한 모든 정보 포함)
-app.get('/api/projects', (req, res) => {
-  const allProjects = projectDAO.getAllProjects();
+app.get('/api/projects', async (req, res) => {
+  const allProjects = await projectDAO.getAllProjects();
   const list = allProjects.map(p => ({
     id: p.id,
     title: p.title,
@@ -737,10 +747,10 @@ app.get('/api/projects', (req, res) => {
 });
 
 // 프로젝트 활성화 (일정 생성 완료 후 draft → active)
-app.post('/api/project/:projectId/activate', (req, res) => {
+app.post('/api/project/:projectId/activate', async (req, res) => {
   try {
     const { projectId } = req.params;
-    const result = projectDAO.updateProject(projectId, { status: 'active' });
+    const result = await projectDAO.updateProject(projectId, { status: 'active' });
 
     if (result.success) {
       console.log(`✅ 프로젝트 활성화: ${projectId}`);
@@ -757,14 +767,14 @@ app.post('/api/project/:projectId/activate', (req, res) => {
 // ─── 예산 거래 관리 API ─────────────────────────────────
 
 // POST /api/budget/transaction - 거래 추가
-app.post('/api/budget/transaction', (req, res) => {
+app.post('/api/budget/transaction', async (req, res) => {
   try {
-    const db = new Database(DB_PATH);
-    const transaction = transactionDAO.createTransaction(db, req.body);
+    const db = getPool();
+    const transaction = await transactionDAO.createTransaction(db, req.body);
 
     // 프로젝트의 예산 업데이트 (spent 합산)
-    const spending = transactionDAO.getProjectSpending(db, req.body.projectId);
-    const project = projectDAO.getProjectById(req.body.projectId);
+    const spending = await transactionDAO.getProjectSpending(db, req.body.projectId);
+    const project = await projectDAO.getProjectById(req.body.projectId);
 
     if (project && project.budget) {
       const budgetData = project.budget;
@@ -774,10 +784,10 @@ app.post('/api/budget/transaction', (req, res) => {
         }
       });
       budgetData.spent = spending.reduce((sum, s) => sum + s.total_spent, 0);
-      projectDAO.updateProject(req.body.projectId, { budget: budgetData });
+      await projectDAO.updateProject(req.body.projectId, { budget: budgetData });
     }
 
-    db.close();
+    // PostgreSQL pool - no close needed
 
     // Socket.io: 예산 업데이트 브로드캐스트
     io.to(`project:${req.body.projectId}`).emit('budget:updated', {
@@ -799,15 +809,15 @@ app.post('/api/budget/transaction', (req, res) => {
 });
 
 // GET /api/budget/transactions/:projectId/:category? - 거래 조회
-app.get('/api/budget/transactions/:projectId/:category?', (req, res) => {
+app.get('/api/budget/transactions/:projectId/:category?', async (req, res) => {
   try {
     const { projectId, category } = req.params;
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const transactions = transactionDAO.getTransactions(db, projectId, category);
-    const summary = transactionDAO.getTransactionSummary(db, projectId, category);
+    const transactions = await transactionDAO.getTransactions(db, projectId, category);
+    const summary = await transactionDAO.getTransactionSummary(db, projectId, category);
 
-    db.close();
+    // PostgreSQL pool - no close needed
 
     res.json({ transactions, summary });
   } catch (err) {
@@ -817,18 +827,18 @@ app.get('/api/budget/transactions/:projectId/:category?', (req, res) => {
 });
 
 // PATCH /api/budget/transaction/:id - 거래 수정
-app.patch('/api/budget/transaction/:id', (req, res) => {
+app.patch('/api/budget/transaction/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const updated = transactionDAO.updateTransaction(db, id, req.body);
+    const updated = await transactionDAO.updateTransaction(db, id, req.body);
 
     // 프로젝트 예산 재계산
-    const transaction = transactionDAO.getTransaction(db, id);
+    const transaction = await transactionDAO.getTransaction(db, id);
     if (transaction) {
-      const spending = transactionDAO.getProjectSpending(db, transaction.project_id);
-      const project = projectDAO.getProjectById(transaction.project_id);
+      const spending = await transactionDAO.getProjectSpending(db, transaction.project_id);
+      const project = await projectDAO.getProjectById(transaction.project_id);
 
       if (project && project.budget) {
         const budgetData = project.budget;
@@ -838,11 +848,11 @@ app.patch('/api/budget/transaction/:id', (req, res) => {
           }
         });
         budgetData.spent = spending.reduce((sum, s) => sum + s.total_spent, 0);
-        projectDAO.updateProject(transaction.project_id, { budget: budgetData });
+        await projectDAO.updateProject(transaction.project_id, { budget: budgetData });
       }
     }
 
-    db.close();
+    // PostgreSQL pool - no close needed
 
     // Socket.io: 예산 업데이트 브로드캐스트
     if (transaction) {
@@ -863,23 +873,23 @@ app.patch('/api/budget/transaction/:id', (req, res) => {
 });
 
 // DELETE /api/budget/transaction/:id - 거래 삭제
-app.delete('/api/budget/transaction/:id', (req, res) => {
+app.delete('/api/budget/transaction/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const transaction = transactionDAO.getTransaction(db, id);
+    const transaction = await transactionDAO.getTransaction(db, id);
     if (!transaction) {
-      db.close();
+      // PostgreSQL pool - no close needed
       return res.status(404).json({ error: '거래를 찾을 수 없습니다' });
     }
 
-    const success = transactionDAO.deleteTransaction(db, id);
+    const success = await transactionDAO.deleteTransaction(db, id);
 
     // 프로젝트 예산 재계산
     if (success) {
-      const spending = transactionDAO.getProjectSpending(db, transaction.project_id);
-      const project = projectDAO.getProjectById(transaction.project_id);
+      const spending = await transactionDAO.getProjectSpending(db, transaction.project_id);
+      const project = await projectDAO.getProjectById(transaction.project_id);
 
       if (project && project.budget) {
         const budgetData = project.budget;
@@ -889,11 +899,11 @@ app.delete('/api/budget/transaction/:id', (req, res) => {
           }
         });
         budgetData.spent = spending.reduce((sum, s) => sum + s.total_spent, 0);
-        projectDAO.updateProject(transaction.project_id, { budget: budgetData });
+        await projectDAO.updateProject(transaction.project_id, { budget: budgetData });
       }
     }
 
-    db.close();
+    // PostgreSQL pool - no close needed
 
     // Socket.io: 예산 업데이트 브로드캐스트
     if (success && transaction) {
@@ -1001,9 +1011,9 @@ app.post('/api/upload/receipt', upload.single('receipt'), async (req, res) => {
       return res.status(400).json({ error: 'projectId가 필요합니다' });
     }
 
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const receipt = receiptDAO.createReceipt(db, {
+    const receipt = await receiptDAO.createReceipt(db, {
       transactionId: transactionId || null,
       projectId,
       filename: req.file.originalname,
@@ -1012,7 +1022,7 @@ app.post('/api/upload/receipt', upload.single('receipt'), async (req, res) => {
       mimetype: req.file.mimetype
     });
 
-    db.close();
+    // PostgreSQL pool - no close needed
 
     console.log(`📎 영수증 업로드: ${req.file.originalname} (${(req.file.size / 1024).toFixed(2)} KB)`);
     res.json({
@@ -1029,11 +1039,11 @@ app.post('/api/upload/receipt', upload.single('receipt'), async (req, res) => {
 app.post('/api/ocr/receipt/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const receipt = receiptDAO.getReceipt(db, id);
+    const receipt = await receiptDAO.getReceipt(db, id);
     if (!receipt) {
-      db.close();
+      // PostgreSQL pool - no close needed
       return res.status(404).json({ error: '영수증을 찾을 수 없습니다' });
     }
 
@@ -1041,14 +1051,14 @@ app.post('/api/ocr/receipt/:id', async (req, res) => {
     const ocrResult = await ocrService.analyzeReceipt(receipt.filepath);
 
     // OCR 결과를 DB에 저장
-    const updatedReceipt = receiptDAO.updateOcrResult(db, id, {
+    const updatedReceipt = await receiptDAO.updateOcrResult(db, id, {
       amount: ocrResult.suggestedAmount,
       date: ocrResult.date,
       rawText: ocrResult.rawText,
       status: 'completed'
     });
 
-    db.close();
+    // PostgreSQL pool - no close needed
 
     console.log(`🔍 OCR 완료: ${receipt.filename} → 금액: ${ocrResult.suggestedAmount}원`);
     res.json({
@@ -1064,25 +1074,25 @@ app.post('/api/ocr/receipt/:id', async (req, res) => {
     console.error('❌ OCR 실패:', err);
 
     // OCR 실패 시 상태 업데이트
-    const db = new Database(DB_PATH);
-    receiptDAO.updateOcrResult(db, req.params.id, {
+    const db = getPool();
+    await receiptDAO.updateOcrResult(db, req.params.id, {
       status: 'failed',
       rawText: `OCR 실패: ${err.message}`
     });
-    db.close();
+    // PostgreSQL pool - no close needed
 
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET /api/receipt/:id - 영수증 조회
-app.get('/api/receipt/:id', (req, res) => {
+app.get('/api/receipt/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const receipt = receiptDAO.getReceipt(db, id);
-    db.close();
+    const receipt = await receiptDAO.getReceipt(db, id);
+    // PostgreSQL pool - no close needed
 
     if (!receipt) {
       return res.status(404).json({ error: '영수증을 찾을 수 없습니다' });
@@ -1096,13 +1106,13 @@ app.get('/api/receipt/:id', (req, res) => {
 });
 
 // GET /api/receipts/:projectId - 프로젝트별 영수증 목록
-app.get('/api/receipts/:projectId', (req, res) => {
+app.get('/api/receipts/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const receipts = receiptDAO.getReceipts(db, projectId);
-    db.close();
+    const receipts = await receiptDAO.getReceipts(db, projectId);
+    // PostgreSQL pool - no close needed
 
     res.json({ receipts, count: receipts.length });
   } catch (err) {
@@ -1112,19 +1122,19 @@ app.get('/api/receipts/:projectId', (req, res) => {
 });
 
 // DELETE /api/receipt/:id - 영수증 삭제
-app.delete('/api/receipt/:id', (req, res) => {
+app.delete('/api/receipt/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const receipt = receiptDAO.getReceipt(db, id);
+    const receipt = await receiptDAO.getReceipt(db, id);
     if (!receipt) {
-      db.close();
+      // PostgreSQL pool - no close needed
       return res.status(404).json({ error: '영수증을 찾을 수 없습니다' });
     }
 
-    const success = receiptDAO.deleteReceipt(db, id);
-    db.close();
+    const success = await receiptDAO.deleteReceipt(db, id);
+    // PostgreSQL pool - no close needed
 
     if (success) {
       // 파일 시스템에서도 삭제
@@ -1156,12 +1166,12 @@ app.post('/api/recommend/:category', async (req, res) => {
       return res.status(400).json({ error: 'projectId가 필요합니다' });
     }
 
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
     // 프로젝트 정보 조회
-    const project = projectDAO.getProjectById(projectId);
+    const project = await projectDAO.getProjectById(projectId);
     if (!project) {
-      db.close();
+      // PostgreSQL pool - no close needed
       return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다' });
     }
 
@@ -1173,9 +1183,9 @@ app.post('/api/recommend/:category', async (req, res) => {
 
     // 캐시 확인 (forceRefresh가 false인 경우)
     if (!forceRefresh) {
-      const cached = recommendationDAO.getRecommendationByCache(db, cacheKey);
+      const cached = await recommendationDAO.getRecommendationByCache(db, cacheKey);
       if (cached) {
-        db.close();
+        // PostgreSQL pool - no close needed
         console.log(`🎯 AI 추천 캐시 히트: ${category} (프로젝트: ${projectId})`);
         return res.json({
           ...cached,
@@ -1200,7 +1210,7 @@ app.post('/api/recommend/:category', async (req, res) => {
     );
 
     // 추천 결과 저장 (캐싱)
-    const savedRecommendation = recommendationDAO.saveRecommendation(db, {
+    const savedRecommendation = await recommendationDAO.saveRecommendation(db, {
       projectId,
       category,
       recommendations: recommendations.recommendations,
@@ -1209,7 +1219,7 @@ app.post('/api/recommend/:category', async (req, res) => {
       ttlHours: 24
     });
 
-    db.close();
+    // PostgreSQL pool - no close needed
 
     console.log(`✅ AI 추천 생성 완료: ${category} (${recommendations.recommendations.length}개)`);
     res.json({
@@ -1222,9 +1232,9 @@ app.post('/api/recommend/:category', async (req, res) => {
     const pid = req.body?.projectId;
     console.error('❌ AI 추천 실패, fallback 사용:', err.message);
 
-    const destName = (() => {
+    const destName = await (async () => {
       try {
-        const p = projectDAO.getProjectById(pid);
+        const p = await projectDAO.getProjectById(pid);
         return p?.destination?.name || p?.destination_data?.name || '현지';
       } catch { return '현지'; }
     })();
@@ -1264,20 +1274,20 @@ app.post('/api/recommend/:category', async (req, res) => {
 });
 
 // GET /api/recommendations/:projectId - 프로젝트별 모든 추천 조회
-app.get('/api/recommendations/:projectId', (req, res) => {
+app.get('/api/recommendations/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
     const { category } = req.query;
 
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const recommendations = recommendationDAO.getRecommendationsByProject(
+    const recommendations = await recommendationDAO.getRecommendationsByProject(
       db,
       projectId,
       category
     );
 
-    db.close();
+    // PostgreSQL pool - no close needed
 
     res.json({
       projectId,
@@ -1292,13 +1302,13 @@ app.get('/api/recommendations/:projectId', (req, res) => {
 });
 
 // DELETE /api/recommendation/:id - 추천 삭제
-app.delete('/api/recommendation/:id', (req, res) => {
+app.delete('/api/recommendation/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const success = recommendationDAO.deleteRecommendation(db, id);
-    db.close();
+    const success = await recommendationDAO.deleteRecommendation(db, id);
+    // PostgreSQL pool - no close needed
 
     if (success) {
       console.log(`🗑️ 추천 삭제: ${id}`);
@@ -1313,12 +1323,12 @@ app.delete('/api/recommendation/:id', (req, res) => {
 });
 
 // POST /api/recommendations/cleanup - 만료된 추천 캐시 정리
-app.post('/api/recommendations/cleanup', (req, res) => {
+app.post('/api/recommendations/cleanup', async (req, res) => {
   try {
-    const db = new Database(DB_PATH);
+    const db = getPool();
 
-    const deletedCount = recommendationDAO.deleteExpiredRecommendations(db);
-    db.close();
+    const deletedCount = await recommendationDAO.deleteExpiredRecommendations(db);
+    // PostgreSQL pool - no close needed
 
     console.log(`🧹 만료된 추천 캐시 정리: ${deletedCount}개 삭제`);
     res.json({
@@ -1334,12 +1344,12 @@ app.post('/api/recommendations/cleanup', (req, res) => {
 
 // ─── 예산 알림 API ───────────────────────────────────────
 // GET /api/budget/alerts/:projectId - 프로젝트 예산 알림 조회
-app.get('/api/budget/alerts/:projectId', (req, res) => {
+app.get('/api/budget/alerts/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
 
     // 프로젝트 조회
-    const project = projectDAO.getProjectById(projectId);
+    const project = await projectDAO.getProjectById(projectId);
     if (!project) {
       return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다' });
     }
@@ -1356,12 +1366,12 @@ app.get('/api/budget/alerts/:projectId', (req, res) => {
 });
 
 // GET /api/budget/health/:projectId - 프로젝트 예산 건강도 평가
-app.get('/api/budget/health/:projectId', (req, res) => {
+app.get('/api/budget/health/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
 
     // 프로젝트 조회
-    const project = projectDAO.getProjectById(projectId);
+    const project = await projectDAO.getProjectById(projectId);
     if (!project) {
       return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다' });
     }
@@ -1387,12 +1397,12 @@ app.get('/api/budget/health/:projectId', (req, res) => {
 });
 
 // GET /api/budget/recommendations/:projectId - 예산 관리 추천사항
-app.get('/api/budget/recommendations/:projectId', (req, res) => {
+app.get('/api/budget/recommendations/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
 
     // 프로젝트 조회
-    const project = projectDAO.getProjectById(projectId);
+    const project = await projectDAO.getProjectById(projectId);
     if (!project) {
       return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다' });
     }
