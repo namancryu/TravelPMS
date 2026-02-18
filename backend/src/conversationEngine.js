@@ -209,7 +209,7 @@ function extractContext(message, context) {
     updated.travelerDetails = message;
     // "어른 2명, 고등학생 1명, 초등학생 1명" 패턴에서 인원수 합산
     // 주의: "초등6학년"에서 6은 학년이지 인원수가 아님 → "N명" 패턴만 인식
-    const detailMatches = lower.match(/(?:어른|성인|고등학생?|중학생?|초등학생?|유치원생?|아이|유아|영아|학생)\s*\d*\s*(?:학년\s*)?(\d+)\s*명/g);
+    const detailMatches = lower.match(/(?:어른|성인|고등학생?|고등|중학생?|중학|초등학생?|초등|유치원생?|아이|유아|영아|학생)\s*\d*\s*(?:학년\s*)?(\d+)\s*명/g);
     if (detailMatches) {
       let total = 0;
       detailMatches.forEach(n => {
@@ -729,14 +729,25 @@ async function processMessage(sessionId, userMessage, userSettings) {
       responseText = await generateMockResponse(session, userMessage);
     }
   } else {
-    // Multi AI Provider 사용 (Groq → Gemini → Together → Mock)
+    // Multi AI Provider 사용 (Gemini → Groq → Mistral → OpenRouter → Mock)
     try {
       const systemPrompt = buildSystemPrompt(session);
-      const conversationHistory = session.history.slice(0, -1)
-        .map(h => `${h.role === 'user' ? '사용자' : 'AI'}: ${h.content}`)
+      // 대화 히스토리를 최근 10개(5왕복)로 제한 → 토큰 초과 방지
+      const recentHistory = session.history.slice(-11, -1);  // 마지막(현재 메시지) 제외, 최근 10개
+      const conversationHistory = recentHistory
+        .map(h => `${h.role === 'user' ? '사용자' : 'AI'}: ${h.content.substring(0, 500)}`)
         .join('\n');
 
-      const fullPrompt = `${systemPrompt}\n\n${conversationHistory ? `이전 대화:\n${conversationHistory}\n\n` : ''}사용자: ${userMessage}\n\nAI:`;
+      let fullPrompt = `${systemPrompt}\n\n${conversationHistory ? `이전 대화:\n${conversationHistory}\n\n` : ''}사용자: ${userMessage}\n\nAI:`;
+
+      // 프롬프트가 너무 길면 히스토리를 더 줄임 (AI 토큰 한도 초과 방지)
+      if (fullPrompt.length > 8000) {
+        const shortHistory = recentHistory.slice(-4)
+          .map(h => `${h.role === 'user' ? '사용자' : 'AI'}: ${h.content.substring(0, 300)}`)
+          .join('\n');
+        fullPrompt = `${systemPrompt}\n\n${shortHistory ? `이전 대화:\n${shortHistory}\n\n` : ''}사용자: ${userMessage}\n\nAI:`;
+        console.log(`📝 프롬프트 길이 제한 적용 (${fullPrompt.length}자)`);
+      }
 
       const aiResult = await generateAIResponse(fullPrompt);
       usedProvider = aiResult.provider;
