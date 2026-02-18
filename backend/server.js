@@ -300,6 +300,67 @@ app.post('/api/recommend', async (req, res) => {
   }
 });
 
+// ─── 슬롯 상세 정보 AI 생성 ─────────────────────────────
+app.post('/api/itinerary/slot-detail', async (req, res) => {
+  try {
+    const { slot, destination, travelers } = req.body;
+    if (!slot || !destination) {
+      return res.status(400).json({ error: 'slot과 destination이 필요합니다.' });
+    }
+
+    if (!geminiModel) {
+      return res.status(503).json({ error: 'AI 모델을 사용할 수 없습니다.' });
+    }
+
+    const typeLabels = { food: '맛집/식당', activity: '관광지/명소', hotel: '숙소/호텔', shopping: '쇼핑 명소' };
+    const typeLabel = typeLabels[slot.type] || '장소';
+
+    const prompt = `${destination} 여행 중 "${slot.title}" 관련 ${typeLabel} 추천을 JSON으로 답하세요.
+
+조건:
+- 장소: ${slot.location || destination}
+- 시간대: ${slot.time}
+- 유형: ${slot.type}
+- 여행자: ${travelers || 2}명
+
+반드시 실존하는 가게/장소를 추천하세요. 반드시 아래 JSON 형식으로만 응답:
+{
+  "description": "${slot.title}에 대한 1~2줄 설명",
+  "options": [
+    {
+      "name": "실제 가게/장소 이름",
+      "category": "카테고리 (라멘, 스시, 사원 등)",
+      "priceRange": "가격대 (현지통화 + 원화 환산)",
+      "rating": 4.5,
+      "highlights": ["특징1", "특징2", "특징3"],
+      "reason": "추천 이유 한 줄",
+      "mapQuery": "Google Maps 검색어"
+    }
+  ],
+  "tips": ["실용 팁1", "실용 팁2"],
+  "duration": "소요시간",
+  "reservationNeeded": false,
+  "childFriendly": true
+}
+
+options는 반드시 3곳을 추천하세요. 반드시 유효한 JSON만 응답.`;
+
+    const result = await geminiModel.generateContent(prompt);
+    const text = result.response.text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+    if (jsonMatch) {
+      const detail = JSON.parse(jsonMatch[0]);
+      return res.json({ detail });
+    }
+
+    res.status(500).json({ error: 'AI 응답 파싱 실패' });
+  } catch (err) {
+    console.error('/api/itinerary/slot-detail error:', err.message);
+    res.status(500).json({ error: '상세 정보 생성 중 오류가 발생했습니다.' });
+  }
+});
+
 // ─── 일정 생성 ─────────────────────────────────────────
 app.post('/api/itinerary/generate', async (req, res) => {
   try {

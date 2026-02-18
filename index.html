@@ -1729,13 +1729,22 @@
 
             {/* 스크롤 콘텐츠 */}
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              {/* 로딩 상태 */}
+              {slot._loading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-center">
+                    <div className="animate-spin w-8 h-8 border-3 border-primary-200 border-t-primary-600 rounded-full mx-auto mb-3"></div>
+                    <p className="text-sm text-gray-500">AI가 맛집/명소를 검색하고 있어요...</p>
+                  </div>
+                </div>
+              )}
               {/* 설명 */}
-              {detail.description && (
+              {detail.description && !slot._loading && (
                 <p className="text-sm text-gray-700 leading-relaxed">{detail.description}</p>
               )}
 
               {/* 배지 (소요시간, 예약필요, 아이동반) */}
-              <div className="flex flex-wrap gap-2">
+              {!slot._loading && <div className="flex flex-wrap gap-2">
                 {detail.duration && (
                   <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">⏱ {detail.duration}</span>
                 )}
@@ -1751,10 +1760,10 @@
                 {detail.childFriendly === false && (
                   <span className="inline-flex items-center gap-1 text-xs bg-yellow-50 text-yellow-600 px-2 py-1 rounded-full">⚠️ 아이 비추천</span>
                 )}
-              </div>
+              </div>}
 
               {/* 추천 선택지 */}
-              {detail.options && detail.options.length > 0 && (
+              {!slot._loading && detail.options && detail.options.length > 0 && (
                 <div>
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">✨ 추천 {detail.options.length}곳</h4>
                   <div className="space-y-2.5">
@@ -1801,7 +1810,7 @@
               )}
 
               {/* 실용 팁 */}
-              {detail.tips && detail.tips.length > 0 && (
+              {!slot._loading && detail.tips && detail.tips.length > 0 && (
                 <div className="bg-amber-50 rounded-xl p-3">
                   <h4 className="text-xs font-bold text-amber-700 mb-1.5">💡 실용 팁</h4>
                   <ul className="space-y-1">
@@ -1838,6 +1847,38 @@
       const [activeDay, setActiveDay] = useState(1);
       const [regenerating, setRegenerating] = useState(false);
       const [selectedSlot, setSelectedSlot] = useState(null);
+      const [loadingDetail, setLoadingDetail] = useState(false);
+
+      // 슬롯 클릭 시 AI 상세정보 요청
+      const handleSlotClick = async (slot) => {
+        const destName = state.project?.destination?.name || '';
+        // 이미 구체적 detail이 있으면 (AI가 생성했거나 mock 데이터) 바로 표시
+        if (slot.detail && !slot._autoEnriched && slot.detail.options?.length > 1) {
+          setSelectedSlot(slot);
+          return;
+        }
+        // AI에게 구체적 추천 요청
+        setSelectedSlot({ ...slot, _loading: true, detail: slot.detail || { description: '추천 정보를 불러오는 중...', options: [], tips: [] } });
+        try {
+          const result = await api('/api/itinerary/slot-detail', {
+            method: 'POST',
+            body: JSON.stringify({
+              slot: { title: slot.title, type: slot.type, location: slot.location, time: slot.time, cost: slot.cost },
+              destination: destName,
+              travelers: state.project?.travelers || 2
+            })
+          });
+          if (result?.detail) {
+            setSelectedSlot({ ...slot, detail: result.detail, _loading: false });
+          } else {
+            // AI 실패 시 기존 enriched detail 표시
+            setSelectedSlot({ ...slot, _loading: false });
+          }
+        } catch (e) {
+          console.error('Slot detail fetch failed:', e);
+          setSelectedSlot({ ...slot, _loading: false });
+        }
+      };
 
       if (!itinerary) {
         return (
@@ -1889,9 +1930,9 @@
         const isGeneric = genericWords.some(w => slot.title === w || slot.title?.includes('마지막'));
         if (isGeneric) return slot;
         if (slot.type === 'food' && slot.title) {
-          return { ...slot, detail: {
-            description: `${destName || slot.location}에서 즐기는 ${slot.title}`,
-            options: [{ name: slot.title, category: slot.type === 'food' ? '맛집' : '', priceRange: slot.cost > 0 ? `약 ${slot.cost.toLocaleString()}원` : '가격 미정', rating: null, highlights: slot.notes ? [slot.notes] : [], reason: `${slot.location} 현지 추천 맛집`, mapQuery: `${slot.title} ${slot.location || destName}` }],
+          return { ...slot, _autoEnriched: true, detail: {
+            description: `${destName || slot.location}에서 즐기는 ${slot.title} - 클릭하면 AI가 구체적인 맛집을 추천해드려요!`,
+            options: [{ name: slot.title, category: '맛집', priceRange: slot.cost > 0 ? `약 ${slot.cost.toLocaleString()}원` : '가격 미정', rating: null, highlights: slot.notes ? [slot.notes] : [], reason: `${slot.location || destName} 현지 추천 맛집`, mapQuery: `${slot.title} ${slot.location || destName}` }],
             tips: slot.notes ? [slot.notes] : [],
             duration: '약 30~60분',
             reservationNeeded: false,
@@ -1899,8 +1940,8 @@
           }};
         }
         if (slot.type === 'activity' && slot.title) {
-          return { ...slot, detail: {
-            description: `${slot.title} - ${slot.location || destName}`,
+          return { ...slot, _autoEnriched: true, detail: {
+            description: `${slot.title} - ${slot.location || destName} - 클릭하면 AI가 상세 정보를 알려드려요!`,
             options: [{ name: slot.title, category: '관광', priceRange: slot.cost > 0 ? `약 ${slot.cost.toLocaleString()}원` : '무료', rating: null, highlights: slot.notes ? [slot.notes] : [], reason: `${destName} 여행 추천 명소`, mapQuery: `${slot.title} ${slot.location || destName}` }],
             tips: slot.notes ? [slot.notes] : [],
             duration: '약 1~2시간',
@@ -1909,8 +1950,8 @@
           }};
         }
         if (slot.type === 'hotel' && slot.title) {
-          return { ...slot, detail: {
-            description: `${slot.location || destName} 숙소`,
+          return { ...slot, _autoEnriched: true, detail: {
+            description: `${slot.location || destName} 숙소 - 클릭하면 AI가 추천 숙소를 알려드려요!`,
             options: [{ name: slot.title, category: '숙소', priceRange: slot.cost > 0 ? `1박 약 ${slot.cost.toLocaleString()}원` : '가격 미정', rating: null, highlights: slot.notes ? [slot.notes] : [], reason: `${slot.location || destName} 추천 숙소`, mapQuery: `${slot.title} ${slot.location || destName}` }],
             tips: slot.notes ? [slot.notes] : [],
             duration: '',
@@ -2059,7 +2100,7 @@
                   <div className="w-12 text-xs font-mono text-gray-500 pt-0.5 flex-shrink-0">{slot.time}</div>
                   <div className="flex-1">
                     <div className={`rounded-lg border p-2.5 ${colorClass} ${hasDetail ? 'cursor-pointer hover:shadow-md transition-shadow ring-0 hover:ring-1 hover:ring-primary-200' : ''}`}
-                         onClick={hasDetail ? () => setSelectedSlot(slot) : undefined}>
+                         onClick={hasDetail ? () => handleSlotClick(slot) : undefined}>
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-1.5">
                           <span className="text-base">{slot.icon}</span>
