@@ -207,14 +207,20 @@ function extractContext(message, context) {
   // 여행자 상세 추출 (어른, 고등학생, 초등학생 등)
   if (/어른|성인|고등|중학|초등|유치원|살|학년|학생/.test(lower)) {
     updated.travelerDetails = message;
-    // "어른 2 고등 1 초등 1" 같은 패턴에서 숫자 합산
-    const nums = lower.match(/(?:어른|성인|고등|중학|초등|유치원|아이|유아|영아|학생)\s*(\d+)/g);
-    if (nums) {
+    // "어른 2명, 고등학생 1명, 초등학생 1명" 패턴에서 인원수 합산
+    // 주의: "초등6학년"에서 6은 학년이지 인원수가 아님 → "N명" 패턴만 인식
+    const detailMatches = lower.match(/(?:어른|성인|고등학생?|중학생?|초등학생?|유치원생?|아이|유아|영아|학생)\s*\d*\s*(?:학년\s*)?(\d+)\s*명/g);
+    if (detailMatches) {
       let total = 0;
-      nums.forEach(n => { const m = n.match(/(\d+)/); if (m) total += parseInt(m[1]); });
+      detailMatches.forEach(n => {
+        // "초등6학년 1명" → 마지막 숫자+명 패턴에서 인원수만 추출
+        const m = n.match(/(\d+)\s*명/);
+        if (m) total += parseInt(m[1]);
+      });
       if (total > 0) {
         updated.travelerCount = total;
         if (total >= 3) updated.travelers = 'family';
+        console.log(`📊 상세 인원수 추출: ${total}명 (from detail parsing)`);
       }
     }
   }
