@@ -111,6 +111,16 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+
+// index.html, sw.js 캐시 방지 (서비스워커 갱신 보장)
+app.use((req, res, next) => {
+  if (req.path === '/' || req.path === '/index.html' || req.path === '/sw.js') {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, '..')));
 
 // Multer 설정 (파일 업로드)
