@@ -1875,12 +1875,53 @@
         );
       }
 
-      const day = itinerary.days.find(d => d.dayNumber === activeDay) || itinerary.days[0];
+      const rawDay = itinerary.days.find(d => d.dayNumber === activeDay) || itinerary.days[0];
       const totalDays = itinerary.days.length;
       const travelers = state.project?.travelers || 1;
 
       // 편도 항공비 계산 (왕복의 절반)
       const destName = state.project?.destination?.name || '';
+
+      // detail이 없는 food/activity/hotel 슬롯에 자동 기본 detail 생성
+      const enrichSlotDetail = (slot) => {
+        if (slot.detail) return slot;
+        const genericWords = ['호텔', '공항', '조식', '점심', '저녁', '출발', '귀국', '도착', '체크인', '체크아웃', '이동', '휴식', '자유시간', '호텔 조식', '편의점', '면세점'];
+        const isGeneric = genericWords.some(w => slot.title === w || slot.title?.includes('마지막'));
+        if (isGeneric) return slot;
+        if (slot.type === 'food' && slot.title) {
+          return { ...slot, detail: {
+            description: `${destName || slot.location}에서 즐기는 ${slot.title}`,
+            options: [{ name: slot.title, category: slot.type === 'food' ? '맛집' : '', priceRange: slot.cost > 0 ? `약 ${slot.cost.toLocaleString()}원` : '가격 미정', rating: null, highlights: slot.notes ? [slot.notes] : [], reason: `${slot.location} 현지 추천 맛집`, mapQuery: `${slot.title} ${slot.location || destName}` }],
+            tips: slot.notes ? [slot.notes] : [],
+            duration: '약 30~60분',
+            reservationNeeded: false,
+            childFriendly: true
+          }};
+        }
+        if (slot.type === 'activity' && slot.title) {
+          return { ...slot, detail: {
+            description: `${slot.title} - ${slot.location || destName}`,
+            options: [{ name: slot.title, category: '관광', priceRange: slot.cost > 0 ? `약 ${slot.cost.toLocaleString()}원` : '무료', rating: null, highlights: slot.notes ? [slot.notes] : [], reason: `${destName} 여행 추천 명소`, mapQuery: `${slot.title} ${slot.location || destName}` }],
+            tips: slot.notes ? [slot.notes] : [],
+            duration: '약 1~2시간',
+            reservationNeeded: false,
+            childFriendly: true
+          }};
+        }
+        if (slot.type === 'hotel' && slot.title) {
+          return { ...slot, detail: {
+            description: `${slot.location || destName} 숙소`,
+            options: [{ name: slot.title, category: '숙소', priceRange: slot.cost > 0 ? `1박 약 ${slot.cost.toLocaleString()}원` : '가격 미정', rating: null, highlights: slot.notes ? [slot.notes] : [], reason: `${slot.location || destName} 추천 숙소`, mapQuery: `${slot.title} ${slot.location || destName}` }],
+            tips: slot.notes ? [slot.notes] : [],
+            duration: '',
+            reservationNeeded: true,
+            childFriendly: true
+          }};
+        }
+        return slot;
+      };
+
+      const day = { ...rawDay, slots: rawDay.slots.map(enrichSlotDetail) };
       // 도시명 별칭 매칭
       const itinCityAliases = {
         '호놀룰루': '하와이', '와이키키': '하와이', '동경': '도쿄',

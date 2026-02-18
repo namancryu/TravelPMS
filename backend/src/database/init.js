@@ -11,7 +11,10 @@ function getPool() {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
-      throw new Error('DATABASE_URL 환경변수가 설정되지 않았습니다');
+      console.warn('⚠️ DATABASE_URL 환경변수가 설정되지 않았습니다 (로컬 모드: DB 기능 비활성화)');
+      // DB 없이도 서버가 동작하도록 더미 pool 반환
+      pool = { query: async () => ({ rows: [] }), end: async () => {} };
+      return pool;
     }
     pool = new Pool({
       connectionString,
