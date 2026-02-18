@@ -1,4 +1,4 @@
-const CACHE_NAME = 'travel-pms-v2';
+const CACHE_NAME = 'travel-pms-v3';
 const ASSETS = ['/index.html', '/manifest.json', '/assets/styles/custom.css'];
 
 self.addEventListener('install', (e) => {

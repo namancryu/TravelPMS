@@ -487,6 +487,18 @@ function getSlotTitle(key) {
   return titles[key] || '자유 일정';
 }
 
+// 도시명 별칭 → 정규 이름 (비행시간/시차 매핑용)
+const cityAliasMap = {
+  '호놀룰루': '하와이', '오아후': '하와이', '와이키키': '하와이', '마우이': '하와이',
+  '동경': '도쿄', '나하': '오키나와',
+  '덴파사르': '발리', '우붓': '발리',
+  '사이공': '호치민', '호이안': '다낭', '후에': '다낭',
+  '로스앤젤레스': 'LA', '엘에이': 'LA',
+  '타이페이': '타이베이', '세부시티': '세부', '막탄': '세부',
+  '앙카라': '이스탄불'
+};
+function resolveCity(name) { return cityAliasMap[name] || name; }
+
 // 편도 비행시간 (시간 단위, 직항 기준)
 const flightHoursMap = {
   '도쿄': 2.5, '오사카': 2, '후쿠오카': 1.5, '삿포로': 3.5, '오키나와': 2.5,
@@ -515,10 +527,10 @@ function flightDurationText(hours) {
 }
 
 function generateDepartureSlots(dest) {
-  const fh = flightHoursMap[dest.name] || 3;
+  const fh = flightHoursMap[resolveCity(dest.name)] || 3;
   // 시차 (한국 기준 도착 시간 계산)
   const timeDiffMap = { '도쿄': 0, '오사카': 0, '방콕': -2, '이스탄불': -6, '파리': -8, '런던': -9, '뉴욕': -14, 'LA': -17, '하와이': -19, '시드니': 1, '발리': -1 };
-  const timeDiff = timeDiffMap[dest.name] || 0;
+  const timeDiff = timeDiffMap[resolveCity(dest.name)] || 0;
   const departHour = 17; // 현지 17시 출발
   const arriveKoreaHour = departHour + fh - timeDiff; // 한국 시간 도착
 
@@ -536,9 +548,9 @@ function generateDepartureSlots(dest) {
 
 function generateGenericSlots(dest, dayIdx, totalDays) {
   if (dayIdx === 0) {
-    const fh = flightHoursMap[dest.name] || 3;
+    const fh = flightHoursMap[resolveCity(dest.name)] || 3;
     const timeDiffMap = { '도쿄': 0, '오사카': 0, '방콕': -2, '이스탄불': -6, '파리': -8, '런던': -9, '뉴욕': -14, 'LA': -17, '하와이': -19, '시드니': 1, '발리': -1 };
-    const timeDiff = timeDiffMap[dest.name] || 0;
+    const timeDiff = timeDiffMap[resolveCity(dest.name)] || 0;
     const departKorea = 9; // 한국 09시 출발
     const arriveLocalHour = departKorea + fh + timeDiff; // 현지 시간 도착
     const checkinHour = arriveLocalHour + 2; // 도착 2시간 후 체크인
