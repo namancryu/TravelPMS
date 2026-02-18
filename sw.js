@@ -1,4 +1,4 @@
-const CACHE_NAME = 'travel-pms-v4';
+const CACHE_NAME = 'travel-pms-v5';
 const ASSETS = ['/index.html', '/manifest.json', '/assets/styles/custom.css'];
 
 self.addEventListener('install', (e) => {
@@ -6,6 +6,12 @@ self.addEventListener('install', (e) => {
     caches.open(CACHE_NAME).then(c => c.addAll(ASSETS))
   );
   self.skipWaiting();
+});
+
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (e) => {
